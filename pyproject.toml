@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ssl-aerial-person-detection"
+version = "0.1.0"
+description = "Low-false-alarm aerial person detection from RGB and thermal imagery"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Eoin McAllister" }]
+dependencies = []
+
+[project.scripts]
+aerial-search = "aerial_search.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.11",
+    "ty>=0.0.1a16",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aerial_search"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ty.environment]
+python-version = "3.12"
