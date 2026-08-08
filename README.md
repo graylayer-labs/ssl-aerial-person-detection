@@ -62,6 +62,9 @@ uv sync --dev
 uv run aerial-search fetch wisard-sample
 uv run aerial-search prepare data/raw/wisard-sample
 uv run aerial-search train-ssl
+uv run aerial-search train-detector thermal scratch
+uv run aerial-search train-detector thermal ssl \
+  --ssl-checkpoint outputs/ssl-sample/model.pt
 ```
 
 The sample is downloaded and extracted beneath `data/`, which is ignored by Git.
@@ -88,3 +91,22 @@ to 5.1% top-1 and from 12.8% to 30.8% top-5 relative to an untrained encoder.
 This is a pipeline sanity check, not a person-detection result. The sample comes from
 one short flight with highly similar adjacent frames. Detection experiments and
 meaningful conclusions require the complete dataset.
+
+### Initial person-localization result
+
+To test whether the learned representations contain useful person information, a
+small ResNet-18 head predicts person-centre locations on a `14 × 14` grid. The same
+model is trained either from random initialization or from the paired SSL encoder.
+
+| Modality | Initialization | Precision | Recall | F1 |
+|---|---|---:|---:|---:|
+| RGB | Random | 67.4% | 45.8% | 54.5% |
+| RGB | Paired SSL | 77.2% | 74.8% | 76.0% |
+| Thermal | Random | 96.2% | 39.1% | 55.6% |
+| Thermal | Paired SSL | 83.0% | 64.8% | 72.8% |
+
+Paired SSL substantially improves recall on both modalities. On RGB it also improves
+precision; on thermal it trades some precision for fewer missed people. These are
+promising development-sample results, not final detection benchmarks: the grid task
+only approximates localization, and all validation frames come from the same short
+flight as the training frames.

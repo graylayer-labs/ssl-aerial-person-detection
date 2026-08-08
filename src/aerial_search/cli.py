@@ -36,6 +36,19 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--epochs", type=int, default=10)
     train.add_argument("--batch-size", type=int, default=16)
 
+    detect = subcommands.add_parser("train-detector", help="run a detection baseline")
+    detect.add_argument("modality", choices=["rgb", "thermal"])
+    detect.add_argument("initialization", choices=["scratch", "ssl"])
+    detect.add_argument(
+        "--data-root", type=Path, default=Path("data/raw/wisard-sample")
+    )
+    detect.add_argument(
+        "--manifests", type=Path, default=Path("data/processed/wisard-sample")
+    )
+    detect.add_argument("--output", type=Path, default=Path("outputs/detection-sample"))
+    detect.add_argument("--epochs", type=int, default=5)
+    detect.add_argument("--ssl-checkpoint", type=Path)
+
     return parser
 
 
@@ -54,6 +67,21 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "prepare":
         counts = prepare_manifests(args.source, args.output)
         print(", ".join(f"{name}: {count}" for name, count in counts.items()))
+        return
+
+    if args.command == "train-detector":
+        from aerial_search.detection_experiment import run_detection_experiment
+
+        result = run_detection_experiment(
+            args.data_root,
+            args.manifests,
+            args.output,
+            modality=args.modality,
+            initialization=args.initialization,
+            ssl_checkpoint=args.ssl_checkpoint,
+            epochs=args.epochs,
+        )
+        print(json.dumps(asdict(result), indent=2))
         return
 
     from aerial_search.ssl_experiment import run_experiment

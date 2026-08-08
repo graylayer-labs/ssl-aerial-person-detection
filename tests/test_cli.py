@@ -13,3 +13,11 @@ def test_prepare_command_parses() -> None:
     args = build_parser().parse_args(["prepare", "data/raw/wisard-sample"])
 
     assert args.command == "prepare"
+
+
+def test_detection_command_parses() -> None:
+    args = build_parser().parse_args(["train-detector", "thermal", "ssl"])
+
+    assert args.command == "train-detector"
+    assert args.modality == "thermal"
+    assert args.initialization == "ssl"

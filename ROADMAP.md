@@ -8,6 +8,7 @@
 - [x] Create reproducible local data manifests.
 - [x] Train separate RGB and thermal encoders with a paired contrastive objective.
 - [x] Compare cross-modal retrieval before and after SSL pretraining.
+- [x] Compare random and SSL initialization on a lightweight person-location task.
 
 The sample validates the pipeline, but it contains only 264 highly related pairs from
 one flight. Its results are not treated as evidence about person detection.
