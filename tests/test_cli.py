@@ -1,22 +1,15 @@
-from pathlib import Path
-
-import pytest
-
-from aerial_search.cli import main
+from aerial_search.cli import build_parser
 
 
-def test_inspect_counts_files(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    (tmp_path / "rgb").mkdir()
-    (tmp_path / "rgb" / "frame.jpg").touch()
-    (tmp_path / "labels.txt").touch()
+def test_fetch_command_parses() -> None:
+    args = build_parser().parse_args(["fetch", "wisard-sample", "--no-extract"])
 
-    main(["inspect", str(tmp_path)])
-
-    assert capsys.readouterr().out == f"{tmp_path}: 2 files\n"
+    assert args.command == "fetch"
+    assert args.dataset == "wisard-sample"
+    assert args.no_extract is True
 
 
-def test_inspect_rejects_missing_path(tmp_path: Path) -> None:
-    with pytest.raises(SystemExit, match="Data path does not exist"):
-        main(["inspect", str(tmp_path / "missing")])
+def test_prepare_command_parses() -> None:
+    args = build_parser().parse_args(["prepare", "data/raw/wisard-sample"])
+
+    assert args.command == "prepare"

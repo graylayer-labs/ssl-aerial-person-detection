@@ -5,12 +5,15 @@ build-backend = "hatchling.build"
 [project]
 name = "ssl-aerial-person-detection"
 version = "0.1.0"
-description = "Low-false-alarm aerial person detection from RGB and thermal imagery"
+description = "Self-supervised RGB-thermal learning for aerial person detection"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Eoin McAllister" }]
-dependencies = []
+dependencies = [
+    "torch>=2.13.0",
+    "torchvision>=0.28.0",
+]
 
 [project.scripts]
 aerial-search = "aerial_search.cli:main"
