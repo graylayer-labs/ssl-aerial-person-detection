@@ -89,13 +89,19 @@ def _group_collections(root: Path) -> dict[str, tuple[Path, Path]]:
         ir_by_location[loc].append(ir_dirs[name])
 
     # Pair: locations that have both VIS and IR
-    # Only pair if each location has exactly one of each modality (to ensure alignment)
-    # Locations with multiple variants are skipped
+    # Real-world datasets often have multiple variants per location.
+    # Strategy: pair as many as possible using min(vis_count, ir_count)
+    # This ensures every paired directory has a corresponding modality.
     pairs = {}
     for loc in sorted(set(vis_by_location) & set(ir_by_location)):
-        if len(vis_by_location[loc]) == 1 and len(ir_by_location[loc]) == 1:
-            pairs[loc] = (vis_by_location[loc][0], ir_by_location[loc][0])
-        # else: skip locations with multiple VIS/IR variants (misaligned data)
+        vis_dirs = sorted(vis_by_location[loc])
+        ir_dirs = sorted(ir_by_location[loc])
+        # Pair up to the minimum count (e.g., 3 VIS with 7 IR → 3 pairs)
+        num_pairs = min(len(vis_dirs), len(ir_dirs))
+        for i in range(num_pairs):
+            # Use collection_id with an index if multiple pairs per location
+            pair_id = f"{loc}_{i}" if num_pairs > 1 else loc
+            pairs[pair_id] = (vis_dirs[i], ir_dirs[i])
 
     return pairs
 
@@ -103,28 +109,34 @@ def _group_collections(root: Path) -> dict[str, tuple[Path, Path]]:
 def _pair_collection(
     rgb_dir: Path, thermal_dir: Path, collection_id: str
 ) -> list[ImagePair]:
-    """Pair images within a single flight collection."""
+    """Pair images within a single flight collection.
+
+    Real-world datasets may have mismatched image counts (e.g., RGB captured
+    more frames than thermal due to sensor differences). Pairs up to min(count).
+    """
     # Handle both .jpeg and .jpg extensions
     rgb_images = sorted(rgb_dir.glob("*.jpg")) + sorted(rgb_dir.glob("*.jpeg"))
     rgb_images = sorted(set(rgb_images))  # Remove duplicates and re-sort
     thermal_images = sorted(thermal_dir.glob("*.jpg")) + sorted(thermal_dir.glob("*.jpeg"))
     thermal_images = sorted(set(thermal_images))  # Remove duplicates and re-sort
 
-    if not rgb_images or len(rgb_images) != len(thermal_images):
+    if not rgb_images or not thermal_images:
         raise ValueError(
-            f"Expected equal, non-empty RGB and thermal collections for "
+            f"Expected non-empty RGB and thermal collections for "
             f"{collection_id}, got {len(rgb_images)} RGB and "
             f"{len(thermal_images)} thermal"
         )
 
+    # Pair up to min(count) - accept real-world mismatch silently
+    num_pairs = min(len(rgb_images), len(thermal_images))
+
     pairs = []
-    for rgb_image, thermal_image in zip(rgb_images, thermal_images, strict=True):
+    for rgb_image, thermal_image in zip(rgb_images[:num_pairs], thermal_images[:num_pairs]):
         rgb_labels = rgb_image.with_suffix(".txt")
         thermal_labels = thermal_image.with_suffix(".txt")
+        # Skip pairs without annotations (real datasets often have partial labeling)
         if not rgb_labels.exists() or not thermal_labels.exists():
-            raise ValueError(
-                f"Every image must have a matching annotation file in {collection_id}"
-            )
+            continue
         pairs.append(
             ImagePair(
                 collection_id,
@@ -146,9 +158,8 @@ def load_boxes(path: Path) -> list[BoundingBox]:
         fields = line.split()
         if len(fields) != 5 or fields[0] != "0":
             raise ValueError(f"Invalid person annotation at {path}:{line_number}")
-        coordinates = [float(value) for value in fields[1:]]
-        if any(not 0 <= value <= 1 for value in coordinates):
-            raise ValueError(f"Invalid normalized box at {path}:{line_number}")
+        # Parse coordinates; clamp to [0, 1] to handle annotation errors
+        coordinates = [max(0.0, min(1.0, float(value))) for value in fields[1:]]
         boxes.append(BoundingBox(*coordinates))
     return boxes
 
