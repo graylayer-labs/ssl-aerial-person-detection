@@ -72,57 +72,56 @@ particularly when labelled data is scarce.
 
 ## Getting started
 
-Python 3.12 and [`uv`](https://docs.astral.sh/uv/) are required.
+**Requirements**: Python 3.12 and [`uv`](https://docs.astral.sh/uv/)
 
-### Quick start with the development sample
+### Development sample (264 pairs)
+
+Quick start to validate the pipeline:
 
 ```bash
 uv sync --dev
 uv run aerial-search fetch wisard-sample
 uv run aerial-search prepare data/raw/wisard-sample
-uv run aerial-search train-ssl
-uv run aerial-search train-detector thermal scratch
-uv run aerial-search train-detector thermal ssl \
-  --ssl-checkpoint outputs/ssl-sample/model.pt
+uv run aerial-search train-ssl --epochs 5
 ```
 
 ### Full dataset workflow
 
-For the full 40GB WiSARD dataset:
+For the complete WiSARD multi-modal dataset (~40GB, 15K+ pairs):
 
 ```bash
-# One-time download and S3 upload
+# 1. One-time: download & upload to S3
 python scripts/download_wisard_full.py
 
-# Extract and prepare
+# 2. Extract and prepare manifests
 uv run aerial-search fetch wisard-full
 uv run aerial-search prepare data/raw/wisard-full --output data/processed/wisard-full
 
-# Explore dataset
+# 3. Explore the data
 jupyter notebook reports/01_data_exploration.ipynb
 ```
 
-The notebook generates:
+The exploration notebook generates:
 - **Visualizations**: annotation distribution, RGB-thermal agreement, sample pairs
-- **Statistics**: boxes per image, cross-modal alignment rates
-- **Findings**: dataset suitability assessment for Search & Rescue
-- **Exports**: `exploration_summary.json` with numerical results
+- **Statistics**: boxes/image, modality alignment, split breakdown
+- **Report**: dataset suitability for Search & Rescue
+- **JSON export**: `reports/exploration_summary.json` for downstream analysis
 
-### Quality checks
+### Quality & testing
 
 ```bash
+uv run pytest
 uv run ruff check .
 uv run ty check
-uv run pytest
 ```
 
-### Data management
+### Data storage
 
-Raw WiSARD data lives in S3 (`ssl-aerial-person-detection-data-eu-west1`,
-`eu-west-1`); use `scripts/download_wisard_full.py` for one-time upload. The
-`fetch` command downloads from S3 and extracts locally. The `prepare` command
-validates paired images and YOLO annotations, then writes manifests with RGB
-paths, thermal paths, and modality-specific person boxes.
+Raw images are archived to AWS S3 (`ssl-aerial-person-detection-data-eu-west1`,
+region `eu-west-1`). The `prepare` command creates lightweight JSONL manifests
+(with image paths and bounding boxes) that stay on disk. Run
+`scripts/download_wisard_full.py` once to upload the raw dataset to S3 after
+extraction.
 
 See [ROADMAP.md](ROADMAP.md) for completed work and the current milestone.
 
