@@ -1,4 +1,4 @@
-"""Lightweight person-localization experiment for the WiSARD sample."""
+"""Person-centre localization on a grid (development benchmark)."""
 
 from __future__ import annotations
 
@@ -9,15 +9,14 @@ from typing import Literal
 
 import torch
 import torch.nn.functional as functional
-from torch import Tensor, nn
+from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
-from torchvision.io import ImageReadMode, decode_image
-from torchvision.models import resnet18
-from torchvision.transforms import functional as vision
+
+from aerial_search.models.components import get_device, load_image, prepare_image
+from aerial_search.models.detection import GRID_SIZE, GridDetector
 
 Modality = Literal["rgb", "thermal"]
 Initialization = Literal["scratch", "ssl"]
-GRID_SIZE = 14
 
 
 class LocationGrids(Dataset[tuple[Tensor, Tensor]]):
@@ -33,38 +32,14 @@ class LocationGrids(Dataset[tuple[Tensor, Tensor]]):
 
     def __getitem__(self, index: int) -> tuple[Tensor, Tensor]:
         record = self.records[index]
-        image = decode_image(
-            str(self.data_root / record[f"{self.modality}_image"]),
-            mode=ImageReadMode.RGB,
-        )
-        image = vision.resize(image, [224, 224], antialias=True).float() / 255
-        image = vision.normalize(image, mean=[0.5] * 3, std=[0.5] * 3)
+        image = load_image(self.data_root / record[f"{self.modality}_image"])
+        image = prepare_image(image, size=224)
         target = torch.zeros(GRID_SIZE, GRID_SIZE)
         for box in record[f"{self.modality}_boxes"]:
             column = min(int(box["x_center"] * GRID_SIZE), GRID_SIZE - 1)
             row = min(int(box["y_center"] * GRID_SIZE), GRID_SIZE - 1)
             target[row, column] = 1
         return image, target
-
-
-class GridDetector(nn.Module):
-    """ResNet-18 features with a person-centre grid head."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        backbone = resnet18(weights=None)
-        self.backbone = backbone
-        self.head = nn.Conv2d(256, 1, kernel_size=1)
-
-    def forward(self, images: Tensor) -> Tensor:
-        features = self.backbone.conv1(images)
-        features = self.backbone.bn1(features)
-        features = self.backbone.relu(features)
-        features = self.backbone.maxpool(features)
-        features = self.backbone.layer1(features)
-        features = self.backbone.layer2(features)
-        features = self.backbone.layer3(features)
-        return self.head(features).squeeze(1)
 
 
 @dataclass(frozen=True)
@@ -99,7 +74,7 @@ def run_detection_experiment(
 ) -> DetectionResult:
     """Train and evaluate a lightweight person-centre locator."""
     torch.manual_seed(7)
-    device = _device()
+    device = get_device()
     train_data = LocationGrids(manifests / "train.jsonl", data_root, modality)
     validation_data = LocationGrids(manifests / "validation.jsonl", data_root, modality)
     train_loader = DataLoader(train_data, batch_size=16, shuffle=True)
@@ -203,9 +178,3 @@ def _match_locations(predicted: Tensor, expected: Tensor) -> tuple[int, int]:
                 matches += 1
                 break
     return matches, len(expected) - matches
-
-
-def _device() -> torch.device:
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")

@@ -1,4 +1,4 @@
-"""Small RGB–thermal contrastive-learning experiment."""
+"""Paired RGB–thermal contrastive learning experiment."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as functional
-from torch import Tensor, nn
+from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
-from torchvision.io import ImageReadMode, decode_image
-from torchvision.models import resnet18
-from torchvision.transforms import functional as vision
+
+from aerial_search.models.components import get_device, load_image, prepare_image
+from aerial_search.models.ssl import ContrastiveEncoders
 
 
 class PairedImages(Dataset[tuple[Tensor, Tensor]]):
@@ -29,26 +29,14 @@ class PairedImages(Dataset[tuple[Tensor, Tensor]]):
 
     def __getitem__(self, index: int) -> tuple[Tensor, Tensor]:
         record = self.records[index]
-        rgb = _load_image(self.data_root / record["rgb_image"])
-        thermal = _load_image(self.data_root / record["thermal_image"])
+        rgb = load_image(self.data_root / record["rgb_image"])
+        thermal = load_image(self.data_root / record["thermal_image"])
         if self.augment and random.random() < 0.5:
+            from torchvision.transforms import functional as vision
+
             rgb = vision.hflip(rgb)
             thermal = vision.hflip(thermal)
-        return _prepare_image(rgb), _prepare_image(thermal)
-
-
-class ContrastiveEncoders(nn.Module):
-    """Separate RGB and thermal encoders with a shared embedding size."""
-
-    def __init__(self, embedding_size: int = 128) -> None:
-        super().__init__()
-        self.rgb = _encoder(embedding_size)
-        self.thermal = _encoder(embedding_size)
-
-    def forward(self, rgb: Tensor, thermal: Tensor) -> tuple[Tensor, Tensor]:
-        return functional.normalize(self.rgb(rgb)), functional.normalize(
-            self.thermal(thermal)
-        )
+        return prepare_image(rgb), prepare_image(thermal)
 
 
 @dataclass(frozen=True)
@@ -79,7 +67,7 @@ def run_experiment(
     """Train paired encoders and evaluate cross-modal retrieval."""
     random.seed(seed)
     torch.manual_seed(seed)
-    device = _device()
+    device = get_device()
     train_data = PairedImages(manifests / "train.jsonl", data_root, augment=True)
     validation_data = PairedImages(
         manifests / "validation.jsonl", data_root, augment=False
@@ -122,27 +110,6 @@ def run_experiment(
     return result
 
 
-def _encoder(embedding_size: int) -> nn.Sequential:
-    backbone = resnet18(weights=None)
-    backbone.fc = nn.Identity()
-    return nn.Sequential(
-        backbone,
-        nn.Linear(512, 256),
-        nn.ReLU(),
-        nn.Linear(256, embedding_size),
-    )
-
-
-def _load_image(path: Path) -> Tensor:
-    return decode_image(str(path), mode=ImageReadMode.RGB)
-
-
-def _prepare_image(image: Tensor) -> Tensor:
-    image = vision.resize(image, [224, 224], antialias=True)
-    tensor = image.float() / 255
-    return vision.normalize(tensor, mean=[0.5] * 3, std=[0.5] * 3)
-
-
 def _contrastive_loss(rgb: Tensor, thermal: Tensor, temperature: float = 0.1) -> Tensor:
     logits = rgb @ thermal.T / temperature
     labels = torch.arange(len(rgb), device=rgb.device)
@@ -171,9 +138,3 @@ def _retrieval(
     top1 = (ranking[:, :1] == targets).any(dim=1).float().mean().item()
     top5 = (ranking[:, :5] == targets).any(dim=1).float().mean().item()
     return top1, top5
-
-
-def _device() -> torch.device:
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")

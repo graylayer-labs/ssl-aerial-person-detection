@@ -119,7 +119,9 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "train-detector":
-        from aerial_search.detection_experiment import run_detection_experiment
+        from aerial_search.experiments.detection_experiment import (
+            run_detection_experiment,
+        )
 
         result = run_detection_experiment(
             args.data_root,
@@ -153,7 +155,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Downloaded {downloaded} files")
         return
 
-    from aerial_search.ssl_experiment import run_experiment
+    from aerial_search.experiments.ssl_experiment import run_experiment
 
     result = run_experiment(
         args.data_root,
