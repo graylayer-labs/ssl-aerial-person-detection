@@ -11,7 +11,6 @@ Prerequisites:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import boto3
@@ -26,7 +25,7 @@ LOCAL_ARCHIVE = Path("data/archives/WiSARD_Multi_Modal_Full.zip")
 
 def download_from_gdrive() -> None:
     """Download full WiSARD dataset from Google Drive."""
-    print(f"Downloading WiSARD full dataset from Google Drive...")
+    print("Downloading WiSARD full dataset from Google Drive...")
     print(f"  File ID: {GOOGLE_DRIVE_FILE_ID}")
     print(f"  Destination: {LOCAL_ARCHIVE}")
 
@@ -47,7 +46,7 @@ def upload_to_s3() -> None:
     if not LOCAL_ARCHIVE.exists():
         raise FileNotFoundError(f"Archive not found: {LOCAL_ARCHIVE}")
 
-    print(f"\nUploading to S3...")
+    print("\nUploading to S3...")
     print(f"  Bucket: {S3_BUCKET}")
     print(f"  Region: {S3_REGION}")
 
@@ -69,7 +68,7 @@ def upload_to_s3() -> None:
 
     print(f"Uploading {file_size / 1e9:.2f} GB to s3://{S3_BUCKET}/{s3_key}")
     s3.upload_file(str(LOCAL_ARCHIVE), S3_BUCKET, s3_key)
-    print(f"✓ Upload complete")
+    print("✓ Upload complete")
 
 
 def main() -> None:
@@ -85,9 +84,10 @@ def main() -> None:
         print("\n" + "=" * 70)
         print("✓ Success! Dataset is now available in S3.")
         print("\nNext steps:")
-        print("  1. Extract locally: uv run aerial-search fetch wisard-full")
-        print("  2. Prepare manifests: uv run aerial-search prepare data/raw/wisard-full")
-        print("  3. Explore data: jupyter notebook reports/01_data_exploration.ipynb")
+        print("  1. Extract: uv run aerial-search fetch wisard-full")
+        prepare_cmd = "uv run aerial-search prepare data/raw/wisard-full"
+        print(f"  2. Prepare: {prepare_cmd}")
+        print("  3. Explore: jupyter notebook reports/01_data_exploration.ipynb")
         print("=" * 70)
 
     except Exception as e:
