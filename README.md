@@ -86,25 +86,27 @@ uv run aerial-search train-detector thermal ssl \
   --ssl-checkpoint outputs/ssl-sample/model.pt
 ```
 
-### Full dataset workflow (recommended)
+### Full dataset workflow
 
-For the full 40GB WiSARD dataset, use the multi-collection pipeline with S3 archival:
+For the full 40GB WiSARD dataset:
 
 ```bash
-# Download and prepare
+# One-time download and S3 upload
+python scripts/download_wisard_full.py
+
+# Extract and prepare
 uv run aerial-search fetch wisard-full
 uv run aerial-search prepare data/raw/wisard-full --output data/processed/wisard-full
 
-# Explore dataset diversity
-uv run aerial-search explore data/raw/wisard-full
-# Report saved to reports/wisard-full-diversity.md
-
-# Archive raw data to S3, keep only manifests + report locally
-uv run aerial-search archive-to-s3 wisard-full --delete-local-raw --delete-local-archive
-
-# Later, restore raw data for training
-uv run aerial-search restore-from-s3 wisard-full
+# Explore dataset
+jupyter notebook reports/01_data_exploration.ipynb
 ```
+
+The notebook generates:
+- **Visualizations**: annotation distribution, RGB-thermal agreement, sample pairs
+- **Statistics**: boxes per image, cross-modal alignment rates
+- **Findings**: dataset suitability assessment for Search & Rescue
+- **Exports**: `exploration_summary.json` with numerical results
 
 ### Quality checks
 
@@ -116,12 +118,11 @@ uv run pytest
 
 ### Data management
 
-Raw WiSARD data is archived to S3 (region: `eu-west-1`, bucket:
-`ssl-aerial-person-detection-data-eu-west1`) rather than kept permanently on
-local disk. Only lightweight manifests (JSONL) and the diversity report stay
-local. The prepare command validates paired images and YOLO annotations, then
-writes manifests with RGB paths, thermal paths, and modality-specific person
-boxes.
+Raw WiSARD data lives in S3 (`ssl-aerial-person-detection-data-eu-west1`,
+`eu-west-1`); use `scripts/download_wisard_full.py` for one-time upload. The
+`fetch` command downloads from S3 and extracts locally. The `prepare` command
+validates paired images and YOLO annotations, then writes manifests with RGB
+paths, thermal paths, and modality-specific person boxes.
 
 See [ROADMAP.md](ROADMAP.md) for completed work and the current milestone.
 
