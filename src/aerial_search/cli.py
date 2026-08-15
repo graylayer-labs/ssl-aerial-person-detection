@@ -8,7 +8,6 @@ from dataclasses import asdict
 from pathlib import Path
 
 from aerial_search.data.fetch import WISARD_FULL, WISARD_SAMPLE, fetch_dataset
-from aerial_search.data.s3_archive import DEFAULT_BUCKET
 from aerial_search.data.wisard import prepare_manifests
 
 DATASETS = {WISARD_SAMPLE.name: WISARD_SAMPLE, WISARD_FULL.name: WISARD_FULL}
@@ -29,21 +28,6 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument(
         "--output", type=Path, default=Path("data/processed/wisard-sample")
     )
-
-    explore = subcommands.add_parser(
-        "explore", help="build a diversity report over raw WiSARD data"
-    )
-    explore.add_argument("source", type=Path)
-    explore.add_argument(
-        "--report", type=Path, default=Path("reports/wisard-full-diversity.md")
-    )
-    explore.add_argument(
-        "--thumbnails-dir",
-        type=Path,
-        default=Path("reports/thumbnails/wisard-full"),
-    )
-    explore.add_argument("--samples-per-collection", type=int, default=20)
-    explore.add_argument("--thumbnails-per-collection", type=int, default=2)
 
     train = subcommands.add_parser("train-ssl", help="run the paired SSL experiment")
     train.add_argument("--data-root", type=Path, default=Path("data/raw/wisard-sample"))
@@ -67,22 +51,6 @@ def build_parser() -> argparse.ArgumentParser:
     detect.add_argument("--epochs", type=int, default=5)
     detect.add_argument("--ssl-checkpoint", type=Path)
 
-    archive = subcommands.add_parser(
-        "archive-to-s3", help="sync raw+processed WiSARD data to S3"
-    )
-    archive.add_argument("dataset", choices=list(DATASETS.keys()))
-    archive.add_argument("--data-root", type=Path, default=Path("data"))
-    archive.add_argument("--bucket", default=DEFAULT_BUCKET)
-    archive.add_argument("--delete-local-raw", action="store_true")
-    archive.add_argument("--delete-local-archive", action="store_true")
-
-    restore = subcommands.add_parser(
-        "restore-from-s3", help="pull raw WiSARD data back from S3"
-    )
-    restore.add_argument("dataset", choices=list(DATASETS.keys()))
-    restore.add_argument("--data-root", type=Path, default=Path("data"))
-    restore.add_argument("--bucket", default=DEFAULT_BUCKET)
-
     return parser
 
 
@@ -104,20 +72,6 @@ def main(argv: list[str] | None = None) -> None:
         print(", ".join(f"{name}: {count}" for name, count in counts.items()))
         return
 
-    if args.command == "explore":
-        from aerial_search.data.diversity import build_diversity_report
-
-        build_diversity_report(
-            args.source,
-            args.report,
-            args.thumbnails_dir,
-            samples_per_collection=args.samples_per_collection,
-            thumbnails_per_collection=args.thumbnails_per_collection,
-        )
-        print(f"Report written to {args.report}")
-        print(f"Thumbnails saved to {args.thumbnails_dir}")
-        return
-
     if args.command == "train-detector":
         from aerial_search.experiments.detection_experiment import (
             run_detection_experiment,
@@ -133,26 +87,6 @@ def main(argv: list[str] | None = None) -> None:
             epochs=args.epochs,
         )
         print(json.dumps(asdict(result), indent=2))
-        return
-
-    if args.command == "archive-to-s3":
-        from aerial_search.data.s3_archive import archive_to_s3
-
-        uploaded = archive_to_s3(
-            args.dataset,
-            args.data_root,
-            bucket=args.bucket,
-            delete_local_raw=args.delete_local_raw,
-            delete_local_archive=args.delete_local_archive,
-        )
-        print(json.dumps(uploaded, indent=2))
-        return
-
-    if args.command == "restore-from-s3":
-        from aerial_search.data.s3_archive import restore_from_s3
-
-        downloaded = restore_from_s3(args.dataset, args.data_root, bucket=args.bucket)
-        print(f"Downloaded {downloaded} files")
         return
 
     from aerial_search.experiments.ssl_experiment import run_experiment
