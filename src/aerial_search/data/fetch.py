@@ -16,7 +16,9 @@ class DatasetSource:
     name: str
     url: str
     filename: str
-    expected_bytes: int
+    expected_bytes: int | None
+    minimum_bytes: int | None = None
+    download_method: str = "urllib"
 
 
 WISARD_SAMPLE = DatasetSource(
@@ -29,6 +31,15 @@ WISARD_SAMPLE = DatasetSource(
     expected_bytes=1_018_780_195,
 )
 
+WISARD_FULL = DatasetSource(
+    name="wisard-full",
+    url="1PKjGCqUszHH1nMbXUBTwPSDqRabAt_ht",
+    filename="WiSARD_Multi_Modal_Full.zip",
+    expected_bytes=None,
+    minimum_bytes=38_000_000_000,
+    download_method="gdown",
+)
+
 
 def fetch_dataset(
     source: DatasetSource, data_root: Path, *, extract: bool = True
@@ -38,7 +49,11 @@ def fetch_dataset(
     archive_dir.mkdir(parents=True, exist_ok=True)
     archive_path = archive_dir / source.filename
 
-    _download_resumable(source, archive_path)
+    if source.download_method == "gdown":
+        _download_via_gdown(source, archive_path)
+    else:
+        _download_resumable(source, archive_path)
+
     _validate_archive(source, archive_path)
 
     if not extract:
@@ -57,20 +72,50 @@ def fetch_dataset(
     return destination
 
 
-def _download_resumable(source: DatasetSource, destination: Path) -> None:
-    current_bytes = destination.stat().st_size if destination.exists() else 0
-    if current_bytes == source.expected_bytes:
+def _check_disk_space(source: DatasetSource, destination: Path) -> None:
+    """Verify sufficient free space for the download."""
+    required_bytes = source.expected_bytes or source.minimum_bytes
+    if required_bytes is None:
         return
-    if current_bytes > source.expected_bytes:
-        raise ValueError(f"Existing archive is larger than expected: {destination}")
-
+    current_bytes = destination.stat().st_size if destination.exists() else 0
     free_bytes = shutil.disk_usage(destination.parent).free
-    remaining_bytes = source.expected_bytes - current_bytes
+    remaining_bytes = required_bytes - current_bytes
     if free_bytes < remaining_bytes:
         raise OSError(
             f"Not enough free space: need {remaining_bytes:,} bytes, "
             f"have {free_bytes:,}"
         )
+
+
+def _is_complete_zip(path: Path) -> bool:
+    """Check if a file exists and is a valid ZIP archive."""
+    if not path.exists():
+        return False
+    try:
+        with zipfile.ZipFile(path) as archive:
+            return archive.testzip() is None
+    except zipfile.BadZipFile:
+        return False
+
+
+def _download_via_gdown(source: DatasetSource, destination: Path) -> None:
+    """Download from Google Drive using gdown."""
+    if _is_complete_zip(destination):
+        return
+    _check_disk_space(source, destination)
+    import gdown
+
+    gdown.download(id=source.url, output=str(destination), resume=True, quiet=False)
+
+
+def _download_resumable(source: DatasetSource, destination: Path) -> None:
+    current_bytes = destination.stat().st_size if destination.exists() else 0
+    if source.expected_bytes and current_bytes == source.expected_bytes:
+        return
+    if source.expected_bytes and current_bytes > source.expected_bytes:
+        raise ValueError(f"Existing archive is larger than expected: {destination}")
+
+    _check_disk_space(source, destination)
 
     request = urllib.request.Request(source.url)
     if current_bytes:
@@ -85,10 +130,19 @@ def _download_resumable(source: DatasetSource, destination: Path) -> None:
 
 def _validate_archive(source: DatasetSource, archive_path: Path) -> None:
     actual_bytes = archive_path.stat().st_size
-    if actual_bytes != source.expected_bytes:
+    if source.expected_bytes is not None:
+        if actual_bytes != source.expected_bytes:
+            raise ValueError(
+                f"Unexpected archive size for {source.name}: "
+                f"expected {source.expected_bytes:,}, got {actual_bytes:,}"
+            )
+    elif (
+        source.minimum_bytes is not None
+        and actual_bytes < source.minimum_bytes
+    ):
         raise ValueError(
-            f"Unexpected archive size for {source.name}: "
-            f"expected {source.expected_bytes:,}, got {actual_bytes:,}"
+            f"Archive size for {source.name} below minimum: "
+            f"expected >= {source.minimum_bytes:,}, got {actual_bytes:,}"
         )
     with zipfile.ZipFile(archive_path) as archive:
         bad_member = archive.testzip()

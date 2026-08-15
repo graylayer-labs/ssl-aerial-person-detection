@@ -1,20 +1,37 @@
 # Self-Supervised RGB–Thermal Person Detection
 
-A personal research project exploring self-supervised learning on paired RGB and
-thermal drone imagery, followed by fine-tuning for aerial person detection.
+## The Problem
 
-## Idea
+Search and Rescue (SAR) teams operate drones equipped with both RGB and thermal
+cameras to locate missing people in wilderness and urban environments. Manually
+labeling every frame to train a detector is prohibitively expensive. Meanwhile,
+unlabeled drone footage is abundant—teams record many flights that don't get
+fully annotated.
+
+This project asks a practical question:
+
+> **Can self-supervised pretraining on paired RGB–thermal imagery help SAR teams
+> detect people faster with minimal manual labeling — and can SSL itself be used as a
+> cheaper, faster alternative to manual data labeling?**
+
+Specifically, we investigate:
+- Does paired-modality SSL outperform single-modality models?
+- How much labeled data do we actually need?
+- Can SSL reduce manual labeling effort compared to traditional Turk-scale annotation?
+- Is the WiSARD public dataset diverse enough (times of day, terrain, weather) to
+  build a generalizable detection system?
+
+## Technical Approach
 
 A drone searching for a person may have both a visible-light camera and a thermal
 camera. RGB captures texture and scene detail but becomes less useful in poor light.
 Thermal imagery can reveal people in darkness, but heat signatures may blend into
 the environment.
 
-The project asks a simple question:
-
-> Can a model learn useful visual features from paired RGB–thermal images before it
-> sees person labels, and does that pretraining improve person detection when labels
-> are limited?
+We use self-supervised contrastive learning on paired RGB–thermal images to learn
+representations before fine-tuning on limited person-detection labels. The key
+insight: unlabeled paired data reveals relationships between modalities; this helps
+a detector generalize to rare or difficult-to-label cases.
 
 ## Data
 

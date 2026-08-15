@@ -11,6 +11,9 @@ requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Eoin McAllister" }]
 dependencies = [
+    "boto3>=1.43.72",
+    "gdown>=6.1.0",
+    "pillow>=12.3.0",
     "torch>=2.13.0",
     "torchvision>=0.28.0",
 ]
@@ -20,6 +23,7 @@ aerial-search = "aerial_search.cli:main"
 
 [dependency-groups]
 dev = [
+    "moto>=5.2.2",
     "pytest>=8.3",
     "ruff>=0.11",
     "ty>=0.0.1a16",

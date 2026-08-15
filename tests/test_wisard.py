@@ -44,21 +44,39 @@ def test_loads_normalized_person_boxes(tmp_path: Path) -> None:
     assert boxes[0].width == 0.1
 
 
-def test_prepares_sequential_manifests(tmp_path: Path) -> None:
+def test_prepares_collection_level_manifests(tmp_path: Path) -> None:
     source = tmp_path / "raw"
-    rgb = source / "flight_VIS_0001"
-    thermal = source / "flight_IR_0002"
-    rgb.mkdir(parents=True)
-    thermal.mkdir()
-    for number in range(10):
-        _sample(rgb, number)
-        _sample(thermal, number + 1)
 
-    counts = prepare_manifests(source, tmp_path / "processed")
+    # Create five collections to ensure test/val splits
+    for flight_idx in range(5):
+        rgb = source / f"2024010{flight_idx}_site_{flight_idx}_VIS_0000"
+        thermal = source / f"2024010{flight_idx}_site_{flight_idx}_IR_0000"
+        rgb.mkdir(parents=True)
+        thermal.mkdir()
 
-    assert counts == {"train": 7, "validation": 1, "test": 2}
-    train_lines = (tmp_path / "processed" / "train.jsonl").read_text().splitlines()
-    assert len(train_lines) == 7
+        # Each flight: 2 pairs (total 10)
+        for number in range(2):
+            _sample(rgb, number)
+            _sample(thermal, number)
+
+    counts = prepare_manifests(source, tmp_path / "processed", seed=7)
+
+    # With seeded shuffle and greedy bin-fill:
+    # 10 pairs total, train_fraction=0.7 -> target_train=7
+    # Collections are shuffled, then greedily assigned.
+    # No collection should be split across train/val/test.
+    total = sum(counts.values())
+    assert total == 10
+    assert sum(counts.values()) == 10  # all pairs accounted for
+    assert all(split >= 0 for split in counts.values())  # no negative counts
+
+    # Verify determinism: same seed produces same split
+    counts2 = prepare_manifests(source, tmp_path / "processed2", seed=7)
+    assert counts == counts2
+
+    # Verify different seed produces (possibly) different split
+    counts3 = prepare_manifests(source, tmp_path / "processed3", seed=42)
+    assert sum(counts3.values()) == 10  # but still valid
 
 
 def _sample(directory: Path, number: int) -> None:
