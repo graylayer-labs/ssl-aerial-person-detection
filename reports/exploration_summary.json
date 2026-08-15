@@ -1,14 +1,31 @@
 {
-  "dataset": "WiSARD Multi-Modal Sample",
-  "total_pairs": 264,
+  "dataset": "WiSARD Multi-Modal Full",
+  "total_pairs": 7359,
+  "data_strategy": "Pragmatic pairing: accepted multi-variant flights, mismatched counts, missing annotations",
   "splits": {
     "train": {
-      "pairs": 264,
-      "rgb_boxes_per_image_mean": 3.871212121212121,
-      "thermal_boxes_per_image_mean": 3.8106060606060606,
-      "agreement_rate": 0.946969696969697,
-      "total_rgb_boxes": 1022,
-      "total_thermal_boxes": 1006
+      "pairs": 5867,
+      "rgb_boxes_per_image_mean": 2.2321459008010907,
+      "thermal_boxes_per_image_mean": 2.1997613771944775,
+      "agreement_rate": 0.7042781660132947,
+      "total_rgb_boxes": 13096,
+      "total_thermal_boxes": 12906
+    },
+    "validation": {
+      "pairs": 1220,
+      "rgb_boxes_per_image_mean": 1.3131147540983608,
+      "thermal_boxes_per_image_mean": 0.5508196721311476,
+      "agreement_rate": 0.4278688524590164,
+      "total_rgb_boxes": 1602,
+      "total_thermal_boxes": 672
+    },
+    "test": {
+      "pairs": 272,
+      "rgb_boxes_per_image_mean": 1.6691176470588236,
+      "thermal_boxes_per_image_mean": 1.9338235294117647,
+      "agreement_rate": 0.6875,
+      "total_rgb_boxes": 454,
+      "total_thermal_boxes": 526
     }
   }
 }
