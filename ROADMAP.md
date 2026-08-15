@@ -15,18 +15,20 @@ one flight. Its results are not treated as evidence about person detection.
 
 ## Current milestone: complete data and detection baseline
 
-- [ ] Download and prepare the complete WiSARD dataset.
-- [ ] Split data by collection rather than adjacent frame.
-- [ ] Add paired-sample and annotation visualizations.
+- [x] Download and prepare the complete WiSARD dataset (via gdown + multi-collection support).
+- [x] Split data by collection rather than adjacent frame (seeded greedy bin-fill).
+- [x] Add paired-sample and annotation visualizations (diversity report with thumbnails).
+- [x] Archive raw WiSARD data to S3 (eu-west-1) instead of local disk.
 - [ ] Train RGB-only and thermal-only person detectors from scratch.
 - [ ] Record mAP and recall baselines.
 
 ## Next: evaluate SSL for person detection
 
+- [ ] Implement label-fraction subsampling (1%, 5%, 10%, 100%) with deterministic seeds.
 - [ ] Pretrain on the complete unlabelled training split.
 - [ ] Fine-tune the same detector architecture from random and SSL initialization.
-- [ ] Compare 1%, 5%, 10%, and 100% label settings.
 - [ ] Report mAP, recall, learning curves, and representative detections.
+- [ ] Compare single-modality vs. paired RGB–thermal SSL on label-scarce scenarios.
 
 ## Optional extensions
 

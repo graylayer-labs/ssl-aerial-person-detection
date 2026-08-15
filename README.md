@@ -74,6 +74,8 @@ particularly when labelled data is scarce.
 
 Python 3.12 and [`uv`](https://docs.astral.sh/uv/) are required.
 
+### Quick start with the development sample
+
 ```bash
 uv sync --dev
 uv run aerial-search fetch wisard-sample
@@ -84,15 +86,42 @@ uv run aerial-search train-detector thermal ssl \
   --ssl-checkpoint outputs/ssl-sample/model.pt
 ```
 
-The sample is downloaded and extracted beneath `data/`, which is ignored by Git.
-The prepare command validates paired images and YOLO annotations, then writes local
-JSONL manifests with RGB paths, thermal paths, and modality-specific person boxes.
+### Full dataset workflow (recommended)
+
+For the full 40GB WiSARD dataset, use the multi-collection pipeline with S3 archival:
+
+```bash
+# Download and prepare
+uv run aerial-search fetch wisard-full
+uv run aerial-search prepare data/raw/wisard-full --output data/processed/wisard-full
+
+# Explore dataset diversity
+uv run aerial-search explore data/raw/wisard-full
+# Report saved to reports/wisard-full-diversity.md
+
+# Archive raw data to S3, keep only manifests + report locally
+uv run aerial-search archive-to-s3 wisard-full --delete-local-raw --delete-local-archive
+
+# Later, restore raw data for training
+uv run aerial-search restore-from-s3 wisard-full
+```
+
+### Quality checks
 
 ```bash
 uv run ruff check .
 uv run ty check
 uv run pytest
 ```
+
+### Data management
+
+Raw WiSARD data is archived to S3 (region: `eu-west-1`, bucket:
+`ssl-aerial-person-detection-data-eu-west1`) rather than kept permanently on
+local disk. Only lightweight manifests (JSONL) and the diversity report stay
+local. The prepare command validates paired images and YOLO annotations, then
+writes manifests with RGB paths, thermal paths, and modality-specific person
+boxes.
 
 See [ROADMAP.md](ROADMAP.md) for completed work and the current milestone.
 
