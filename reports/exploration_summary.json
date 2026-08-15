@@ -1,0 +1,14 @@
+{
+  "dataset": "WiSARD Multi-Modal Sample",
+  "total_pairs": 264,
+  "splits": {
+    "train": {
+      "pairs": 264,
+      "rgb_boxes_per_image_mean": 3.871212121212121,
+      "thermal_boxes_per_image_mean": 3.8106060606060606,
+      "agreement_rate": 0.946969696969697,
+      "total_rgb_boxes": 1022,
+      "total_thermal_boxes": 1006
+    }
+  }
+}

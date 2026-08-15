@@ -45,36 +45,70 @@ def _find_collections(root: Path, marker: str) -> list[Path]:
     )
 
 
-def _flight_key(name: str, marker: str) -> str:
-    """Extract shared flight prefix by removing marker and everything after it."""
+def _normalize_collection_name(name: str, marker: str) -> str:
+    """Extract flight identifier from collection directory name.
+
+    Handles various naming patterns:
+    - 200910_Carnation_FLIR_IR_1 → 200910_Carnation_FLIR
+    - 210417_MtErie_Enterprise_IR_0004 → 210417_MtErie_Enterprise
+    - 200426_SkookumCreek_Mavic_Mini_VIS_0006 → 200426_SkookumCreek_Mavic_Mini
+    """
     parts = name.split("_")
-    return "_".join(parts[: parts.index(marker)])
+    marker_idx = parts.index(marker)
+    return "_".join(parts[:marker_idx])
 
 
 def _group_collections(root: Path) -> dict[str, tuple[Path, Path]]:
-    """Pair VIS/IR directories by flight key, raising on ambiguity or mismatch."""
-    vis_dirs = _find_collections(root, "VIS")
-    ir_dirs = _find_collections(root, "IR")
+    """Pair VIS/IR directories, skipping unpaired locations.
 
-    vis_by_key = {_flight_key(p.name, "VIS"): p for p in vis_dirs}
-    ir_by_key = {_flight_key(p.name, "IR"): p for p in ir_dirs}
+    Real-world datasets may have:
+    - Locations with only VIS (no thermal)
+    - Locations with multiple VIS/IR shots (variants)
+    - Locations with both
 
-    if len(vis_by_key) != len(vis_dirs) or len(ir_by_key) != len(ir_dirs):
-        raise ValueError("Ambiguous VIS/IR collections share a flight key")
+    This groups by normalized location name and pairs exactly one VIS with one IR.
+    Locations without both modalities are skipped silently.
+    """
+    vis_dirs = {p.name: p for p in _find_collections(root, "VIS")}
+    ir_dirs = {p.name: p for p in _find_collections(root, "IR")}
 
-    missing = sorted(set(vis_by_key) ^ set(ir_by_key))
-    if missing:
-        raise ValueError(f"Unmatched VIS/IR flight collections: {missing}")
+    # Group by normalized name (location without modality suffix)
+    vis_by_location = {}
+    ir_by_location = {}
 
-    return {k: (vis_by_key[k], ir_by_key[k]) for k in sorted(vis_by_key)}
+    for name in vis_dirs:
+        loc = _normalize_collection_name(name, "VIS")
+        if loc not in vis_by_location:
+            vis_by_location[loc] = []
+        vis_by_location[loc].append(vis_dirs[name])
+
+    for name in ir_dirs:
+        loc = _normalize_collection_name(name, "IR")
+        if loc not in ir_by_location:
+            ir_by_location[loc] = []
+        ir_by_location[loc].append(ir_dirs[name])
+
+    # Pair: locations that have both VIS and IR
+    # Only pair if each location has exactly one of each modality (to ensure alignment)
+    # Locations with multiple variants are skipped
+    pairs = {}
+    for loc in sorted(set(vis_by_location) & set(ir_by_location)):
+        if len(vis_by_location[loc]) == 1 and len(ir_by_location[loc]) == 1:
+            pairs[loc] = (vis_by_location[loc][0], ir_by_location[loc][0])
+        # else: skip locations with multiple VIS/IR variants (misaligned data)
+
+    return pairs
 
 
 def _pair_collection(
     rgb_dir: Path, thermal_dir: Path, collection_id: str
 ) -> list[ImagePair]:
     """Pair images within a single flight collection."""
-    rgb_images = sorted(rgb_dir.glob("*.jpeg"))
-    thermal_images = sorted(thermal_dir.glob("*.jpeg"))
+    # Handle both .jpeg and .jpg extensions
+    rgb_images = sorted(rgb_dir.glob("*.jpg")) + sorted(rgb_dir.glob("*.jpeg"))
+    rgb_images = sorted(set(rgb_images))  # Remove duplicates and re-sort
+    thermal_images = sorted(thermal_dir.glob("*.jpg")) + sorted(thermal_dir.glob("*.jpeg"))
+    thermal_images = sorted(set(thermal_images))  # Remove duplicates and re-sort
 
     if not rgb_images or len(rgb_images) != len(thermal_images):
         raise ValueError(
