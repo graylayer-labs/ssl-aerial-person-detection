@@ -22,16 +22,18 @@ def test_loads_pairs_in_capture_order(tmp_path: Path) -> None:
     assert pairs[0].thermal_image.name.endswith("00000001.jpeg")
 
 
-def test_rejects_missing_annotation(tmp_path: Path) -> None:
+def test_skips_missing_annotation(tmp_path: Path) -> None:
+    """Pragmatic pairing: silently skip frames without annotations."""
     rgb = tmp_path / "flight_VIS_0001"
     thermal = tmp_path / "flight_IR_0002"
     rgb.mkdir()
     thermal.mkdir()
-    _sample(rgb, 0)
-    (thermal / "flight_IR_0002_00000001.jpeg").touch()
+    _sample(rgb, 0)  # Has annotation
+    (thermal / "flight_IR_0002_00000001.jpeg").touch()  # No annotation
 
-    with pytest.raises(ValueError, match="matching annotation"):
-        load_pairs(tmp_path)
+    # Thermal image without annotation is skipped; result is empty list
+    pairs = load_pairs(tmp_path)
+    assert len(pairs) == 0
 
 
 def test_loads_normalized_person_boxes(tmp_path: Path) -> None:

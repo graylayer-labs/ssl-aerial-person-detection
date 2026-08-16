@@ -29,11 +29,20 @@ class BoundingBox:
     height: float
 
 
-def load_pairs(root: Path) -> list[ImagePair]:
-    """Return synchronized pairs from all flight collections."""
+def load_pairs(
+    root: Path, stats: dict[str, int] | None = None
+) -> list[ImagePair]:
+    """Return synchronized pairs from all flight collections.
+
+    If stats dict provided, it's filled with counters for pragmatic pairing decisions.
+    """
     pairs: list[ImagePair] = []
-    for collection_id, (rgb_dir, thermal_dir) in _group_collections(root).items():
-        pairs.extend(_pair_collection(rgb_dir, thermal_dir, collection_id))
+    for cid, (rgb_dir, thermal_dir) in _group_collections(
+        root, stats=stats
+    ).items():
+        pairs.extend(
+            _pair_collection(rgb_dir, thermal_dir, cid, stats=stats)
+        )
     return pairs
 
 
@@ -58,7 +67,9 @@ def _normalize_collection_name(name: str, marker: str) -> str:
     return "_".join(parts[:marker_idx])
 
 
-def _group_collections(root: Path) -> dict[str, tuple[Path, Path]]:
+def _group_collections(
+    root: Path, stats: dict[str, int] | None = None
+) -> dict[str, tuple[Path, Path]]:
     """Pair VIS/IR directories, skipping unpaired locations.
 
     Real-world datasets may have:
@@ -68,6 +79,8 @@ def _group_collections(root: Path) -> dict[str, tuple[Path, Path]]:
 
     This groups by normalized location name and pairs exactly one VIS with one IR.
     Locations without both modalities are skipped silently.
+
+    If stats dict provided, increments 'flights_multi_variant' when num_pairs > 1.
     """
     vis_dirs = {p.name: p for p in _find_collections(root, "VIS")}
     ir_dirs = {p.name: p for p in _find_collections(root, "IR")}
@@ -98,6 +111,8 @@ def _group_collections(root: Path) -> dict[str, tuple[Path, Path]]:
         ir_dirs = sorted(ir_by_location[loc])
         # Pair up to the minimum count (e.g., 3 VIS with 7 IR → 3 pairs)
         num_pairs = min(len(vis_dirs), len(ir_dirs))
+        if num_pairs > 1 and stats is not None:
+            stats['flights_multi_variant'] = stats.get('flights_multi_variant', 0) + 1
         for i in range(num_pairs):
             # Use collection_id with an index if multiple pairs per location
             pair_id = f"{loc}_{i}" if num_pairs > 1 else loc
@@ -107,17 +122,26 @@ def _group_collections(root: Path) -> dict[str, tuple[Path, Path]]:
 
 
 def _pair_collection(
-    rgb_dir: Path, thermal_dir: Path, collection_id: str
+    rgb_dir: Path,
+    thermal_dir: Path,
+    collection_id: str,
+    stats: dict[str, int] | None = None,
 ) -> list[ImagePair]:
     """Pair images within a single flight collection.
 
     Real-world datasets may have mismatched image counts (e.g., RGB captured
     more frames than thermal due to sensor differences). Pairs up to min(count).
+
+    If stats dict provided, increments 'frames_skipped' when annotations are missing.
     """
     # Handle both .jpeg and .jpg extensions
-    rgb_images = sorted(rgb_dir.glob("*.jpg")) + sorted(rgb_dir.glob("*.jpeg"))
+    rgb_images = sorted(rgb_dir.glob("*.jpg")) + sorted(
+        rgb_dir.glob("*.jpeg")
+    )
     rgb_images = sorted(set(rgb_images))  # Remove duplicates and re-sort
-    thermal_images = sorted(thermal_dir.glob("*.jpg")) + sorted(thermal_dir.glob("*.jpeg"))
+    thermal_images = sorted(thermal_dir.glob("*.jpg")) + sorted(
+        thermal_dir.glob("*.jpeg")
+    )
     thermal_images = sorted(set(thermal_images))  # Remove duplicates and re-sort
 
     if not rgb_images or not thermal_images:
@@ -131,11 +155,15 @@ def _pair_collection(
     num_pairs = min(len(rgb_images), len(thermal_images))
 
     pairs = []
-    for rgb_image, thermal_image in zip(rgb_images[:num_pairs], thermal_images[:num_pairs]):
+    for rgb_image, thermal_image in zip(
+        rgb_images[:num_pairs], thermal_images[:num_pairs], strict=False
+    ):
         rgb_labels = rgb_image.with_suffix(".txt")
         thermal_labels = thermal_image.with_suffix(".txt")
         # Skip pairs without annotations (real datasets often have partial labeling)
         if not rgb_labels.exists() or not thermal_labels.exists():
+            if stats is not None:
+                stats['frames_skipped'] = stats.get('frames_skipped', 0) + 1
             continue
         pairs.append(
             ImagePair(
@@ -149,8 +177,14 @@ def _pair_collection(
     return pairs
 
 
-def load_boxes(path: Path) -> list[BoundingBox]:
-    """Load normalized person boxes from a WiSARD annotation file."""
+def load_boxes(
+    path: Path, stats: dict[str, int] | None = None
+) -> list[BoundingBox]:
+    """Load normalized person boxes from a WiSARD annotation file.
+
+    If stats dict provided, increments 'boxes_clamped' when coordinates are
+    out-of-range.
+    """
     boxes = []
     for line_number, line in enumerate(path.read_text().splitlines(), start=1):
         if not line.strip():
@@ -159,15 +193,25 @@ def load_boxes(path: Path) -> list[BoundingBox]:
         if len(fields) != 5 or fields[0] != "0":
             raise ValueError(f"Invalid person annotation at {path}:{line_number}")
         # Parse coordinates; clamp to [0, 1] to handle annotation errors
-        coordinates = [max(0.0, min(1.0, float(value))) for value in fields[1:]]
-        boxes.append(BoundingBox(*coordinates))
+        values = [float(v) for v in fields[1:]]
+        clamped = [max(0.0, min(1.0, v)) for v in values]
+        if stats is not None and any(
+            clamped[i] != values[i] for i in range(len(values))
+        ):
+            stats['boxes_clamped'] = stats.get('boxes_clamped', 0) + 1
+        boxes.append(BoundingBox(*clamped))
     return boxes
 
 
-def load_pairs_by_collection(root: Path) -> dict[str, list[ImagePair]]:
-    """Return pairs grouped by collection_id."""
+def load_pairs_by_collection(
+    root: Path, stats: dict[str, int] | None = None
+) -> dict[str, list[ImagePair]]:
+    """Return pairs grouped by collection_id.
+
+    If stats dict provided, it's filled with counters from load_pairs.
+    """
     grouped: dict[str, list[ImagePair]] = {}
-    for pair in load_pairs(root):
+    for pair in load_pairs(root, stats=stats):
         grouped.setdefault(pair.collection_id, []).append(pair)
     return grouped
 
@@ -180,13 +224,17 @@ def prepare_manifests(
     validation_fraction: float = 0.15,
     seed: int = 7,
 ) -> dict[str, int]:
-    """Write collection-level JSONL splits via seeded greedy bin-filling."""
+    """Write collection-level JSONL splits via seeded greedy bin-filling.
+
+    Also writes data_quality.json with counts of pragmatic pairing decisions.
+    """
     if not 0 < train_fraction < 1 or not 0 < validation_fraction < 1:
         raise ValueError("Split fractions must be between zero and one")
     if train_fraction + validation_fraction >= 1:
         raise ValueError("Train and validation fractions must leave a test split")
 
-    by_collection = load_pairs_by_collection(source)
+    stats: dict[str, int] = {}
+    by_collection = load_pairs_by_collection(source, stats=stats)
     collection_ids = list(by_collection)
     random.Random(seed).shuffle(collection_ids)
 
@@ -213,14 +261,33 @@ def prepare_manifests(
         manifest = destination / f"{name}.jsonl"
         with manifest.open("w") as output:
             for pair in split_pairs:
-                output.write(json.dumps(_pair_record(pair, source)) + "\n")
+                output.write(json.dumps(_pair_record(pair, source, stats=stats)) + "\n")
+
+    # Write data quality log
+    quality_log = destination / "data_quality.json"
+    with quality_log.open("w") as f:
+        json.dump({
+            "frames_skipped": stats.get("frames_skipped", 0),
+            "boxes_clamped": stats.get("boxes_clamped", 0),
+            "flights_multi_variant": stats.get("flights_multi_variant", 0),
+        }, f, indent=2)
+
     return {name: len(split_pairs) for name, split_pairs in splits.items()}
 
 
-def _pair_record(pair: ImagePair, source: Path) -> dict[str, object]:
+def _pair_record(
+    pair: ImagePair, source: Path, stats: dict[str, int] | None = None
+) -> dict[str, object]:
     return {
+        "collection_id": pair.collection_id,
         "rgb_image": str(pair.rgb_image.relative_to(source)),
         "thermal_image": str(pair.thermal_image.relative_to(source)),
-        "rgb_boxes": [box.__dict__ for box in load_boxes(pair.rgb_labels)],
-        "thermal_boxes": [box.__dict__ for box in load_boxes(pair.thermal_labels)],
+        "rgb_boxes": [
+            box.__dict__
+            for box in load_boxes(pair.rgb_labels, stats=stats)
+        ],
+        "thermal_boxes": [
+            box.__dict__
+            for box in load_boxes(pair.thermal_labels, stats=stats)
+        ],
     }
