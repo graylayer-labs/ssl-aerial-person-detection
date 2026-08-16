@@ -2,73 +2,23 @@
 
 ## The Problem
 
-Search and Rescue (SAR) teams operate drones equipped with both RGB and thermal
-cameras to locate missing people in wilderness and urban environments. Manually
-labeling every frame to train a detector is prohibitively expensive. Meanwhile,
-unlabeled drone footage is abundant—teams record many flights that don't get
-fully annotated.
+Search and Rescue (SAR) teams have abundant unlabeled drone footage but expensive
+manual labeling. Can self-supervised learning on paired RGB–thermal imagery help
+them detect people faster with minimal manual labeling?
 
-This project asks a practical question:
-
-> **Can self-supervised pretraining on paired RGB–thermal imagery help SAR teams
-> detect people faster with minimal manual labeling — and can SSL itself be used as a
-> cheaper, faster alternative to manual data labeling?**
-
-Specifically, we investigate:
-- Does paired-modality SSL outperform single-modality models?
-- How much labeled data do we actually need?
-- Can SSL reduce manual labeling effort compared to traditional Turk-scale annotation?
-- Is the WiSARD public dataset diverse enough (times of day, terrain, weather) to
-  build a generalizable detection system?
-
-## Technical Approach
-
-A drone searching for a person may have both a visible-light camera and a thermal
-camera. RGB captures texture and scene detail but becomes less useful in poor light.
-Thermal imagery can reveal people in darkness, but heat signatures may blend into
-the environment.
-
-We use self-supervised contrastive learning on paired RGB–thermal images to learn
-representations before fine-tuning on limited person-detection labels. The key
-insight: unlabeled paired data reveals relationships between modalities; this helps
-a detector generalize to rare or difficult-to-label cases.
+See [docs/PROBLEM.md](docs/PROBLEM.md) for the full problem statement, technical
+approach, research questions, and experiment design.
 
 ## Data
 
 The project uses the public
-[WiSARD dataset](https://sites.google.com/uw.edu/wisard/), which contains aerial RGB
-and thermal wilderness imagery with person bounding boxes. Its multimodal subset
-contains synchronized RGB–thermal image pairs captured from a drone across varied
-terrain, seasons, and lighting conditions.
+[WiSARD dataset](https://sites.google.com/uw.edu/wisard/) — synchronized RGB–thermal
+image pairs from real SAR flights across varied terrain, seasons, and lighting
+conditions.
 
-The smaller public sample is used to build and test the pipeline. Person-detection
-experiments will use the complete dataset.
-
-### Initial sample review
-
-- 264 synchronized image pairs from one flight;
-- RGB resolution of `3840 × 2160` and thermal resolution of `640 × 512`;
-- 1,022 RGB boxes and 1,006 thermal boxes;
-- people occupy roughly 0.05% of an RGB frame at the median;
-- 251 of 264 RGB frames contain four people, so adjacent frames are highly related;
-- RGB and thermal frames share a capture time but are not pixel-aligned.
-
-The sample is therefore useful for data-pipeline development and debugging. Results
-reported as experiments will use the complete dataset with collection-level splits.
-The first cross-modal SSL baseline will operate on whole-image representations rather
-than assuming that RGB and thermal pixels correspond.
-
-## Experiments
-
-We will compare:
-
-1. A person detector trained from scratch.
-2. A detector initialized from single-modality SSL pretraining.
-3. A detector initialized from paired RGB–thermal SSL pretraining.
-
-Each approach will be fine-tuned with different fractions of the available person
-annotations. Detection mAP and recall will show whether paired pretraining helps,
-particularly when labelled data is scarce.
+See [reports/01_data_exploration.ipynb](reports/01_data_exploration.ipynb) for the
+full data exploration, including annotation distributions, flight diversity, and
+sample visuals.
 
 ## Getting started
 
