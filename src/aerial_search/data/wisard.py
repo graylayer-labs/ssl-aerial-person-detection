@@ -29,6 +29,38 @@ class BoundingBox:
     height: float
 
 
+def _load_all_pairs(root: Path) -> list[ImagePair]:
+    """Return ALL synchronized pairs (labeled + unlabeled) from all collections.
+
+    Unlike load_pairs(), this does NOT skip pairs without annotations.
+    Used for SSL pretraining which doesn't require labels.
+    """
+    pairs: list[ImagePair] = []
+    for cid, (rgb_dir, thermal_dir) in _group_collections(root).items():
+        rgb_images = sorted(rgb_dir.glob("*.jpg")) + sorted(rgb_dir.glob("*.jpeg"))
+        rgb_images = sorted(set(rgb_images))
+        thermal_images = sorted(thermal_dir.glob("*.jpg")) + sorted(thermal_dir.glob("*.jpeg"))
+        thermal_images = sorted(set(thermal_images))
+
+        num_pairs = min(len(rgb_images), len(thermal_images))
+        for rgb_image, thermal_image in zip(
+            rgb_images[:num_pairs], thermal_images[:num_pairs], strict=False
+        ):
+            rgb_labels = rgb_image.with_suffix(".txt")
+            thermal_labels = thermal_image.with_suffix(".txt")
+            # Include pair regardless of annotation existence
+            pairs.append(
+                ImagePair(
+                    cid,
+                    rgb_image,
+                    thermal_image,
+                    rgb_labels,
+                    thermal_labels,
+                )
+            )
+    return pairs
+
+
 def load_pairs(
     root: Path, stats: dict[str, int] | None = None
 ) -> list[ImagePair]:
@@ -224,17 +256,52 @@ def prepare_manifests(
     validation_fraction: float = 0.15,
     seed: int = 7,
 ) -> dict[str, int]:
-    """Write collection-level JSONL splits via seeded greedy bin-filling.
+    """Write all-pairs manifest + labeled-only splits.
 
-    Also writes data_quality.json with counts of pragmatic pairing decisions.
+    Steps:
+    1. Load ALL pairs (labeled + unlabeled) and write all_pairs.jsonl
+    2. Load labeled pairs only and write full.jsonl
+    3. Split labeled pairs via seeded greedy bin-filling, write train/validation/test
+    4. Write data_quality.json with counts of pragmatic pairing decisions
+
+    Note: all_pairs.jsonl includes frames without annotations (good for SSL).
+    full.jsonl includes only labeled frames (for detection fine-tuning).
     """
     if not 0 < train_fraction < 1 or not 0 < validation_fraction < 1:
         raise ValueError("Split fractions must be between zero and one")
     if train_fraction + validation_fraction >= 1:
         raise ValueError("Train and validation fractions must leave a test split")
 
+    destination.mkdir(parents=True, exist_ok=True)
+
+    # First: write all pairs (labeled + unlabeled) for SSL
+    print("Loading all RGB-thermal pairs (including unlabeled)...")
+    all_pairs_unlabeled = _load_all_pairs(source)
+    all_pairs_manifest = destination / "all_pairs.jsonl"
+    with all_pairs_manifest.open("w") as output:
+        for pair in all_pairs_unlabeled:
+            # Don't track stats for unlabeled, just write raw records
+            output.write(json.dumps({
+                "collection_id": pair.collection_id,
+                "rgb_image": str(pair.rgb_image.relative_to(source)),
+                "thermal_image": str(pair.thermal_image.relative_to(source)),
+            }) + "\n")
+    print(f"✓ Wrote {len(all_pairs_unlabeled):,} pairs to all_pairs.jsonl (SSL dataset)")
+
+    # Second: write labeled pairs only for detection
+    print("Loading labeled pairs (with annotations)...")
     stats: dict[str, int] = {}
+    all_pairs = load_pairs(source, stats=stats)
     by_collection = load_pairs_by_collection(source, stats=stats)
+
+    # Write full labeled dataset manifest
+    full_manifest = destination / "full.jsonl"
+    with full_manifest.open("w") as output:
+        for pair in all_pairs:
+            output.write(json.dumps(_pair_record(pair, source, stats=stats)) + "\n")
+    print(f"✓ Wrote {len(all_pairs):,} labeled pairs to full.jsonl (detection dataset)")
+
+    # Then split labeled pairs for train/validation/test
     collection_ids = list(by_collection)
     random.Random(seed).shuffle(collection_ids)
 
@@ -256,7 +323,6 @@ def prepare_manifests(
         splits[name].extend(by_collection[cid])
         counts[name] += len(by_collection[cid])
 
-    destination.mkdir(parents=True, exist_ok=True)
     for name, split_pairs in splits.items():
         manifest = destination / f"{name}.jsonl"
         with manifest.open("w") as output:
@@ -267,6 +333,8 @@ def prepare_manifests(
     quality_log = destination / "data_quality.json"
     with quality_log.open("w") as f:
         json.dump({
+            "total_pairs": len(all_pairs_unlabeled),
+            "labeled_pairs": len(all_pairs),
             "frames_skipped": stats.get("frames_skipped", 0),
             "boxes_clamped": stats.get("boxes_clamped", 0),
             "flights_multi_variant": stats.get("flights_multi_variant", 0),
