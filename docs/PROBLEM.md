@@ -25,29 +25,16 @@ camera. RGB captures texture and scene detail but becomes less useful in poor li
 Thermal imagery can reveal people in darkness, but heat signatures may blend into
 the environment.
 
-**Key insight:** RGB and thermal cameras see differently—they provide
-*complementary* views of the same person. When RGB misses a person due to poor
-lighting, thermal often catches the heat signature. When thermal's heat signal
-blends into the environment, RGB's texture detail reveals the person. This
-complementarity is the signal self-supervised learning can exploit.
-
-**Two key metrics:**
-
-**Agreement Rate** — What fraction of images have the same number of detected people
-in both RGB and thermal? High agreement (70%) means both modalities are synchronized.
-Low agreement (43%) means they see different things—which, counterintuitively, is
-valuable for SSL. It means the modalities are capturing different information about
-the same person.
-
-**Complementarity** — Cases where one modality detects people the other completely
-misses (e.g., thermal sees someone RGB can't due to darkness, or vice versa). This
-is the complementary signal SSL needs: it forces the encoder to learn that RGB and
-thermal can represent the same person through different visual mechanisms.
+**Key insight:** RGB and thermal cameras see differently. When RGB misses a person
+due to poor lighting, thermal often catches the heat signature. When thermal's heat
+signal blends into the environment, RGB's texture detail reveals the person. These
+different modalities provide complementary information about the same scene.
 
 We use self-supervised contrastive learning on paired RGB–thermal images to learn
-representations before fine-tuning on limited person-detection labels. Unlabeled
-paired data reveals relationships between modalities; this helps a detector
-generalize to rare or difficult-to-label cases.
+representations that exploit this complementarity, before fine-tuning on limited
+person-detection labels. Unlabeled paired data can teach a model that the same
+person can be represented through different visual mechanisms; this should help a
+detector generalize to rare or difficult-to-label cases.
 
 ## Experiment Design
 
