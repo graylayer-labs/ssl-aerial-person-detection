@@ -11,7 +11,7 @@ The project uses the public [WiSARD dataset](https://sites.google.com/uw.edu/wis
 7,359 labeled thermal-RGB image pairs from real SAR flights, plus 16,459 total pairs
 (labeled + unlabeled) for training.
 
-See [reports/01_data_exploration.ipynb](reports/01_data_exploration.ipynb) for data analysis.
+See [notebooks/01_data_exploration.ipynb](notebooks/01_data_exploration.ipynb) for data analysis.
 
 ## Setup
 
@@ -27,5 +27,5 @@ uv run ruff check .
 
 Dataset prepared and analyzed. Ready to begin representation learning.
 
-See [ROADMAP.md](ROADMAP.md) for the project roadmap.
+See [ROADMAP.md](docs/ROADMAP.md) for the project roadmap.
 

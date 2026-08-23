@@ -26,15 +26,15 @@ def build_parser() -> argparse.ArgumentParser:
     prepare = subcommands.add_parser("prepare", help="prepare WiSARD manifests")
     prepare.add_argument("source", type=Path)
     prepare.add_argument(
-        "--output", type=Path, default=Path("data/processed/wisard-sample")
+        "--output", type=Path, default=Path("data/manifests/wisard-sample")
     )
 
     train = subcommands.add_parser("train-ssl", help="run the paired SSL experiment")
     train.add_argument("--data-root", type=Path, default=Path("data/raw/wisard-sample"))
     train.add_argument(
-        "--manifests", type=Path, default=Path("data/processed/wisard-sample")
+        "--manifests", type=Path, default=Path("data/manifests/wisard-sample")
     )
-    train.add_argument("--output", type=Path, default=Path("outputs/ssl-sample"))
+    train.add_argument("--output", type=Path, default=Path("checkpoints/ssl-sample"))
     train.add_argument("--epochs", type=int, default=10)
     train.add_argument("--batch-size", type=int, default=16)
 
@@ -45,9 +45,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--data-root", type=Path, default=Path("data/raw/wisard-sample")
     )
     detect.add_argument(
-        "--manifests", type=Path, default=Path("data/processed/wisard-sample")
+        "--manifests", type=Path, default=Path("data/manifests/wisard-sample")
     )
-    detect.add_argument("--output", type=Path, default=Path("outputs/detection-sample"))
+    detect.add_argument("--output", type=Path, default=Path("checkpoints/detection-sample"))
     detect.add_argument("--epochs", type=int, default=5)
     detect.add_argument("--ssl-checkpoint", type=Path)
 

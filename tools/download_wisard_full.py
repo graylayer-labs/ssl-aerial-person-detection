@@ -2,11 +2,11 @@
 """One-time download and S3 upload of the full WiSARD dataset.
 
 Usage:
-    python scripts/download_wisard_full.py
+    python tools/download_wisard_full.py
 
 Prerequisites:
     - AWS credentials configured (~/.aws/credentials or env vars)
-    - Python environment with uv: uv run python scripts/download_wisard_full.py
+    - Python environment with uv: uv run python tools/download_wisard_full.py
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def main() -> None:
         print("  1. Extract: uv run aerial-search fetch wisard-full")
         prepare_cmd = "uv run aerial-search prepare data/raw/wisard-full"
         print(f"  2. Prepare: {prepare_cmd}")
-        print("  3. Explore: jupyter notebook reports/01_data_exploration.ipynb")
+        print("  3. Explore: jupyter notebook notebooks/01_data_exploration.ipynb")
         print("=" * 70)
 
     except Exception as e:
