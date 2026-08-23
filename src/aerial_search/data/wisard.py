@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,11 +30,23 @@ class BoundingBox:
     height: float
 
 
+def _extract_frame_index(path: Path) -> int | None:
+    """Extract frame index from WiSARD filename.
+
+    Handles patterns like:
+    - 210327_Airfield_FLIR_VIS_1_00000075.jpg → 75
+    - 20210327_120445_IR_H264 (...).mp4_00000.jpg → 0
+    """
+    match = re.search(r'_(\d{5,6})\.(?:jpg|jpeg)$', path.name)
+    return int(match.group(1)) if match else None
+
+
 def _load_all_pairs(root: Path) -> list[ImagePair]:
     """Return ALL synchronized pairs (labeled + unlabeled) from all collections.
 
     Unlike load_pairs(), this does NOT skip pairs without annotations.
     Used for SSL pretraining which doesn't require labels.
+    Pairs by frame index, not position, to ensure synchronization.
     """
     pairs: list[ImagePair] = []
     for cid, (rgb_dir, thermal_dir) in _group_collections(root).items():
@@ -42,10 +55,15 @@ def _load_all_pairs(root: Path) -> list[ImagePair]:
         thermal_images = sorted(thermal_dir.glob("*.jpg")) + sorted(thermal_dir.glob("*.jpeg"))
         thermal_images = sorted(set(thermal_images))
 
-        num_pairs = min(len(rgb_images), len(thermal_images))
-        for rgb_image, thermal_image in zip(
-            rgb_images[:num_pairs], thermal_images[:num_pairs], strict=False
-        ):
+        # Build frame-index lookups
+        rgb_by_frame = {_extract_frame_index(img): img for img in rgb_images}
+        thermal_by_frame = {_extract_frame_index(img): img for img in thermal_images}
+
+        # Match by frame index
+        common_frames = sorted(set(rgb_by_frame.keys()) & set(thermal_by_frame.keys()))
+        for frame_idx in common_frames:
+            rgb_image = rgb_by_frame[frame_idx]
+            thermal_image = thermal_by_frame[frame_idx]
             rgb_labels = rgb_image.with_suffix(".txt")
             thermal_labels = thermal_image.with_suffix(".txt")
             # Include pair regardless of annotation existence
@@ -159,22 +177,20 @@ def _pair_collection(
     collection_id: str,
     stats: dict[str, int] | None = None,
 ) -> list[ImagePair]:
-    """Pair images within a single flight collection.
+    """Pair images within a single flight collection by frame index.
 
-    Real-world datasets may have mismatched image counts (e.g., RGB captured
-    more frames than thermal due to sensor differences). Pairs up to min(count).
+    Matches RGB and thermal frames using their frame indices (e.g., _00075.jpg),
+    not by position in sorted list. This ensures true temporal synchronization.
+
+    Real-world datasets may have mismatched frame indices. Pairs only frames
+    that exist in both modalities.
 
     If stats dict provided, increments 'frames_skipped' when annotations are missing.
     """
-    # Handle both .jpeg and .jpg extensions
-    rgb_images = sorted(rgb_dir.glob("*.jpg")) + sorted(
-        rgb_dir.glob("*.jpeg")
-    )
-    rgb_images = sorted(set(rgb_images))  # Remove duplicates and re-sort
-    thermal_images = sorted(thermal_dir.glob("*.jpg")) + sorted(
-        thermal_dir.glob("*.jpeg")
-    )
-    thermal_images = sorted(set(thermal_images))  # Remove duplicates and re-sort
+    rgb_images = sorted(rgb_dir.glob("*.jpg")) + sorted(rgb_dir.glob("*.jpeg"))
+    rgb_images = sorted(set(rgb_images))
+    thermal_images = sorted(thermal_dir.glob("*.jpg")) + sorted(thermal_dir.glob("*.jpeg"))
+    thermal_images = sorted(set(thermal_images))
 
     if not rgb_images or not thermal_images:
         raise ValueError(
@@ -183,13 +199,17 @@ def _pair_collection(
             f"{len(thermal_images)} thermal"
         )
 
-    # Pair up to min(count) - accept real-world mismatch silently
-    num_pairs = min(len(rgb_images), len(thermal_images))
+    # Build frame-index lookups
+    rgb_by_frame = {_extract_frame_index(img): img for img in rgb_images}
+    thermal_by_frame = {_extract_frame_index(img): img for img in thermal_images}
+
+    # Match by frame index (not by position)
+    common_frames = sorted(set(rgb_by_frame.keys()) & set(thermal_by_frame.keys()))
 
     pairs = []
-    for rgb_image, thermal_image in zip(
-        rgb_images[:num_pairs], thermal_images[:num_pairs], strict=False
-    ):
+    for frame_idx in common_frames:
+        rgb_image = rgb_by_frame[frame_idx]
+        thermal_image = thermal_by_frame[frame_idx]
         rgb_labels = rgb_image.with_suffix(".txt")
         thermal_labels = thermal_image.with_suffix(".txt")
         # Skip pairs without annotations (real datasets often have partial labeling)
