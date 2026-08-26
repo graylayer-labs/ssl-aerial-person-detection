@@ -16,58 +16,117 @@
 
 ## Representation Learning: Disagreement-Aware SSL Pretraining
 
-The core insight: thermal/RGB disagreement is diagnostic (one modality fails where the other succeeds), not noise. Use disagreement patterns to improve representation learning.
+The core insight: thermal/RGB disagreement is diagnostic (one modality fails where the other succeeds), not noise. Use disagreement patterns to improve representation learning. *Answers RQ1: Does disagreement improve SSL?*
 
+### Core Implementation
+- [ ] Compute agreement scores from paired data (rgb_boxes count vs thermal_boxes count)
 - [ ] Implement asymmetric weighted contrastive loss
   - High-agreement pairs: maximize alignment (confidence signal)
   - High-disagreement pairs: hard-negative mining (learn asymmetry)
-  - Complementarity pairs (one modality empty): triplet weighting
-- [ ] Replace random initialization with pretrained ResNet18 backbone
-- [ ] Train on full 16,459 pairs using disagreement-weighted objective
-- [ ] Evaluate retrieval metrics: RGB→thermal top-1/top-5 accuracy
-- [ ] Create ablation: disagreement-weighted loss vs. standard symmetric contrastive
+  - Complementarity pairs (one modality empty): special weighting
+- [ ] Train on full 8,759 pairs (labeled + unlabeled) using disagreement-weighted objective
+- [ ] Evaluate retrieval metrics: RGB→thermal & thermal→RGB top-1/top-5 accuracy
 - [ ] Checkpoint: disagreement-aware encoder pair (RGB + thermal)
 
-**Output:** Pretrained backbone that understands modality-specific failure modes. Ablation showing disagreement weighting improves top-5 retrieval by >15 points.
+### Experiments (RQ1 Validation)
+- [ ] **exp1_ssl_baseline:** Standard symmetric contrastive loss, ResNet18, 10 epochs
+  - Baseline top-1/top-5 retrieval accuracy
+- [ ] **exp2_ssl_disagreement_aware:** Disagreement-weighted loss, ResNet18, 10 epochs
+  - Expect >15% improvement in top-1 retrieval vs exp1 (RQ1 confirmed)
+- [ ] **exp3_ssl_pretrained_backbone:** Disagreement-weighted loss, pretrained ResNet18 (ImageNet), 10 epochs
+  - Ablation: Does domain-adaptive pretraining help? (benchmark for Phase 2)
+
+### Ablations
+- [ ] Loss temperature: [0.05, 0.1, 0.2] (convergence sensitivity)
+- [ ] Agreement weighting scheme: [linear, exponential, categorical] (which weighting works best?)
+- [ ] Backbone selection: ResNet18 vs ResNet50 (speed vs accuracy trade-off)
+- [ ] Training dynamics: loss curves, convergence speed, memory usage
+
+**Output:** 
+- Pretrained backbone checkpoint (from exp2) for Phase 2 detection training
+- Ablation table: Disagreement weighting > baseline (quantified % improvement)
+- Convergence plots (loss over epochs for each variant)
+- **Portfolio message:** "Disagreement-aware SSL improves cross-modal alignment by X%, enabling better downstream detection"
 
 ---
 
 ## Detection Architecture: Multi-Modal Fusion Baseline
 
-Build a detection system that learns to resolve thermal/RGB disagreement at prediction time, not pretraining time.
+Build a detection system that learns to resolve thermal/RGB disagreement at prediction time, not pretraining time. *Answers RQ2: Does fusion exploit complementarity?*
 
-- [ ] Implement early-fusion detector (concatenate layer3 RGB + thermal features)
-- [ ] Add YOLO-style detection head (class + 4-point bounding box, not grid)
-- [ ] Train RGB-only baseline from scratch (labeled pairs only)
-- [ ] Train thermal-only baseline from scratch (labeled pairs only)
-- [ ] Train fusion detector from scratch (labeled pairs only)
-- [ ] Evaluate all three on held-out test set: mAP@0.5, recall, false positive rate
-- [ ] Contribution analysis: for each test detection, mark if RGB detected it, thermal, or both
-- [ ] Create portfolio comparison table: RGB-only vs. thermal-only vs. fusion
+### Core Implementation
+- [ ] Implement early-fusion detector (concatenate layer3 RGB + thermal features before detection head)
+- [ ] Use grid-based detection head (14×14 grid, "person present" per cell) — domain-appropriate for SAR
+- [ ] Train detection baselines from scratch (no SSL pretraining; establishes baseline)
+  - RGB-only: single modality detection
+  - Thermal-only: single modality detection
+  - Fusion: joint RGB+thermal feature processing
+- [ ] Evaluate all three on held-out test set: mAP@0.5, recall, FPR
+- [ ] Contribution analysis: for each test detection, which modality(ies) detected it?
+- [ ] Create portfolio comparison table
 
-**Output:** Three baseline detectors. Contribution dashboard showing which modality contributes to each detection (quantify complementarity in practice). Target: fusion detector >18% mAP improvement over either modality alone.
+### Experiments (RQ2 Validation)
+- [ ] **det1_rgb_only:** GridDetector on RGB only, trained from scratch
+  - Baseline RGB-only mAP, recall, FPR
+- [ ] **det2_thermal_only:** GridDetector on thermal only, trained from scratch
+  - Baseline thermal-only mAP, recall, FPR
+- [ ] **det3_fusion:** Early-fusion detector (RGB + thermal), trained from scratch
+  - Expect >10% mAP improvement vs max(det1, det2) (RQ2 confirmed)
+- [ ] **det4_fusion_pretrained:** Fusion detector initialized from exp2 (SSL pretrained), fine-tuned on labeled data
+  - Bonus experiment: does SSL pretraining help detection? (bridge to Phase 3)
+
+### Ablations
+- [ ] Fusion location: [early (layer3), late (output heads)] (where to fuse?)
+- [ ] Detection head design: [grid-based, bbox regression] (appropriate for SAR?)
+- [ ] Modality balancing: [equal weights, thermal-weighted, RGB-weighted] (should one modality dominate?)
+- [ ] Inference latency: measure on CPU (must be <200ms for real-time)
+
+**Output:**
+- Three trained baseline detectors (det1, det2, det3)
+- Comparison table: RGB mAP vs thermal mAP vs fusion mAP (fusion wins on mAP)
+- Modality contribution heatmap: % detections by [RGB-only, thermal-only, both]
+- **Portfolio message:** "Fusion detector leverages modality complementarity; catches people that either modality alone misses"
 
 ---
 
 ## Label Efficiency: Few-Shot Learning Experiments
 
-**This is the portfolio centerpiece.** Compare label-efficient learning across random init vs. pretrained (disagreement-aware + baseline SSL).
+**This is the portfolio centerpiece.** Compare label-efficient learning across random init vs. pretrained (disagreement-aware SSL). *Answers RQ3: How much does SSL reduce label requirements?*
 
+### Core Implementation
 - [ ] Implement stratified label-fraction subsampling
   - Sample at 1%, 5%, 10%, 100% of labeled pairs
-  - Preserve 70/34 agreement/disagreement ratio in each subsample
+  - Preserve agreement/disagreement ratio in each subsample (ensures fair comparison)
   - Deterministic seeding for reproducibility
-- [ ] Fine-tune fusion detector from three initializations:
-  - Random weights
-  - Standard symmetric contrastive pretraining
-  - Disagreement-aware contrastive pretraining
-- [ ] For each config, train at each label fraction (9 total experiments)
-- [ ] Collect: mAP, recall, learning curves
-- [ ] Plot label-efficiency comparison: mAP vs. label fraction (%)
-- [ ] Quantify: "At 5% labels, disagreement-aware SSL achieves X mAP; random init requires Y% labels for same mAP"
-- [ ] Create shaded confidence bands (multiple seeds if compute allows)
+- [ ] Fine-tune fusion detector from three initializations at each label fraction (9 configs)
+  - S1: Random weights (baseline)
+  - S2: Standard contrastive pretraining (baseline SSL)
+  - S3: Disagreement-aware pretraining (proposed)
+- [ ] For each config: collect mAP, recall, learning curves, training stability
+- [ ] Plot label-efficiency curves: mAP vs. label fraction (%)
+- [ ] Quantify annotation reduction: "At 5% labels, S3 reaches X mAP; S1 requires Y% labels"
+- [ ] Confidence bands: show variance across seeds (measure stability)
 
-**Output:** Label-efficiency curves showing annotation burden reduction. Core metric: "5x reduction in annotation budget to reach target performance."
+### Experiments (RQ3 Validation)
+- [ ] **eff1_supervised_random:** GridDetector with random init at label fractions [1%, 5%, 10%, 100%]
+  - Baseline: how much labeled data do we need without SSL?
+- [ ] **eff2_supervised_baseline_ssl:** GridDetector with standard contrastive SSL pretraining at same fractions
+  - Baseline SSL: does generic pretraining help? (expect modest gain)
+- [ ] **eff3_supervised_disagreement_ssl:** GridDetector with disagreement-aware SSL pretraining at same fractions
+  - Proposed: expect significant gain; this is the main result for RQ3
+
+### Ablations
+- [ ] Stratification strategy: [stratified by agreement, random sampling] (does preserving disagreement help?)
+- [ ] Number of seeds: [1, 3, 5] (is result stable?)
+- [ ] Backbone freezing: [frozen, fine-tuned] (should we freeze or fine-tune pretrained features?)
+- [ ] Label sampling strategy: deterministic seeding for reproducibility
+
+**Output:**
+- Label-efficiency curves (mAP vs. label %, with confidence bands)
+- **Central portfolio figure:** Comparison of eff1 vs eff2 vs eff3 curves
+- Quantified claim: "SSL reduces annotation budget by 5x" (specific numbers from experiments)
+- Learning curves: training stability across label fractions
+- **Portfolio message:** "With SSL pretraining, you reach target performance with 1/5 the labels"
 
 ---
 
