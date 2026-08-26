@@ -121,12 +121,21 @@ Build a detection system that learns to resolve thermal/RGB disagreement at pred
 - [ ] Backbone freezing: [frozen, fine-tuned] (should we freeze or fine-tune pretrained features?)
 - [ ] Label sampling strategy: deterministic seeding for reproducibility
 
+### Bonus: Disagreement Analysis (RQ4 Validation)
+- [ ] **RQ4 analysis:** Categorize disagreement cases in test set
+  - After fine-tuning, identify test samples where RGB and thermal detection counts differ significantly
+  - Manual inspection: sample 100-200 disagreement cases
+  - Categorize by visual features: [low-light conditions, temperature-only targets, occlusion/foliage, ambiguous people]
+  - Quantify: % disagreement cases explained by each category
+  - Success metric: explain >80% of disagreement cases by domain-specific failure modes
+
 **Output:**
 - Label-efficiency curves (mAP vs. label %, with confidence bands)
 - **Central portfolio figure:** Comparison of eff1 vs eff2 vs eff3 curves
-- Quantified claim: "SSL reduces annotation budget by 5x" (specific numbers from experiments)
+- Quantified claim: "SSL reduces annotation budget by X-Y times" (specific numbers from experiments)
 - Learning curves: training stability across label fractions
-- **Portfolio message:** "With SSL pretraining, you reach target performance with 1/5 the labels"
+- Disagreement analysis: categorization of why modalities disagree (domain insights)
+- **Portfolio message:** "With SSL pretraining, you reach target performance with fewer labels; disagreement analysis shows modality specialization"
 
 ---
 

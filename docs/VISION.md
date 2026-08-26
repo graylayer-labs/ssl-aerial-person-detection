@@ -37,9 +37,17 @@ By using paired thermal-RGB data as the primary training signal (via self-superv
 
 **Test:** Compare two SSL pretraining variants:
 - H0 (baseline): Standard symmetric contrastive loss (all pairs treated equally)
-- H1 (proposed): Disagreement-aware loss (high-agreement pairs maximize alignment, disagreement pairs are hard negatives)
+  - Loss: L = 1/2 [CE(logits_rgb→thermal) + CE(logits_thermal→rgb)]
+  - Where logits = (features @ features^T) / temperature
+- H1 (proposed): Disagreement-weighted loss (high-agreement pairs weighted high, disagreement pairs weighted low)
+  - Loss: L = 1/2 Σ [w_i · CE(logits_rgb→thermal)_i + w_i · CE(logits_thermal→rgb)_i]
+  - Where w_i = agreement_score_i (computed as min(rgb_count, thermal_count) / max(rgb_count, thermal_count))
+  - High-agreement (w ≈ 1.0): maximize alignment (confidence signal)
+  - Disagreement (w ≈ 0.5): reduced loss weight (hard negatives, learn modality asymmetry)
 
-**Success metric:** H1 achieves >15% higher top-1 retrieval accuracy (RGB→thermal cross-modal retrieval) than H0
+**Success metric:** H1 achieves >15% relative improvement in top-1 retrieval accuracy (RGB→thermal) vs H0. Example: H0 = 50% top-1, H1 = 57.5% top-1 (represents 7.5 percentage point gain, 15% relative improvement).
+
+**Note:** Retrieval accuracy is a proxy for detection quality. After Phase 1, we validate that retrieval improvement transfers to better downstream detection performance.
 
 ### RQ2: Does Multi-Modal Fusion Exploit Complementarity?
 **Hypothesis:** Thermal and RGB have complementary failure modes (thermal sees heat, RGB sees detail). A fusion detector that processes both modalities jointly should catch people that either modality alone misses.
@@ -52,13 +60,21 @@ By using paired thermal-RGB data as the primary training signal (via self-superv
 **Success metric:** B3 achieves >10% higher mAP@0.5 than max(B1, B2)
 
 ### RQ3: How Much Does SSL Reduce Label Requirements?
-**Hypothesis:** Self-supervised pretraining on unlabeled paired data reduces the labeled data needed to reach a target performance level by 5x or more.
+**Hypothesis:** Self-supervised pretraining on unlabeled paired data reduces the labeled data needed to reach a target performance level. Based on prior SSL literature (typically 2-3x reduction), we hypothesize SSL will achieve 3-5x reduction for SAR person detection.
 
 **Test:** Fine-tune detection detectors from:
 - S1 (baseline): Random initialization at label fractions [1%, 5%, 10%, 100%]
 - S2 (proposed): SSL-pretrained backbone at same label fractions
 
-**Success metric:** S2 reaches 0.60 mAP@0.5 with 5% labels; S1 requires 25%+ labels
+**Success metric:** Measure label-efficiency ratio: at a given mAP target (to be determined after Phase 2 baseline results), how many labels does S1 require vs S2?
+- Example (hypothetical): If target mAP = 0.55:
+  - S1 requires ~20% labels (label fraction where S1 random init reaches 0.55)
+  - S2 requires ~4% labels (label fraction where S2 pretrained reaches 0.55)
+  - Label-efficiency ratio = 20% / 4% = 5x reduction
+- **Target (hypothesis):** Expect 3-5x reduction; will report actual ratio
+- **Minimum acceptable:** >1.5x reduction (anything better than random init validates SSL value)
+
+**Note:** "5x reduction" is ambitious based on prior work; we frame it as a hypothesis, not a guarantee. Actual ratio will depend on Phase 2 baseline mAP and downstream fine-tuning performance.
 
 ### RQ4: What Causes Thermal-RGB Disagreement?
 **Hypothesis:** Disagreement falls into predictable categories (thermal false positives on non-human heat, RGB false negatives in darkness/occlusion). Understanding these patterns can guide detector design.
