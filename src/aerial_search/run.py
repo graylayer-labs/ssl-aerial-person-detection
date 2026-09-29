@@ -67,7 +67,9 @@ def _inspect(repo: Path) -> dict[str, Any]:
         )
     ancestor = _git(repo, "merge-base", "--is-ancestor", "HEAD", MAIN_REF)
     if ancestor.returncode not in (0, 1):
-        raise ProvenanceError(f"cannot compare HEAD with origin/main: {ancestor.stderr}")
+        raise ProvenanceError(
+            f"cannot compare HEAD with origin/main: {ancestor.stderr}"
+        )
     return {
         "commit": commit,
         "dirty": dirty,
