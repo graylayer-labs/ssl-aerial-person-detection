@@ -2,6 +2,10 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
+- 2026-09-29 · chose to require signed commits on `main` through GitHub's own signature on squash merges over setting up a local signing key · every commit on `main` is verified with no key for agents to hold.
+- 2026-09-29 · chose a separate `process-auditor` over widening `repo-janitor` · one checks how work was done and may fix records; the other checks the repo's contents and changes nothing.
+- 2026-09-29 · chose to quote results only from runs on a clean commit on `main` over allowing branch runs · the owner's rule against "works on my machine"; enforced by the module in #23.
+- 2026-09-29 · chose the main session as a lead that delegates in the background over doing the work itself · keeps its context for judgement; agents return short reports and the detail goes on the issue.
 - 2026-09-29 · chose to treat `data/manifests/` as regenerable and `data/raw/` as protected over one rule for all of `data/` · manifests come from committed code; raw data is 122 GB and slow to restore.
 - 2026-09-29 · chose a cold-start test (a fresh agent, read-only, reporting what confused it) over trusting the docs by reading them · the author of the docs cannot see what they left out.
 - 2026-09-29 · chose to pin the frame-number parsing bug as a strict expected failure over fixing it in the lint PR · changing pairing needs the verification in #2; the pinned test keeps the bug visible while CI is green.

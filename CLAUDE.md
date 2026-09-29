@@ -11,6 +11,21 @@ Eoin is the Product Owner. Claude agents do the engineering and run the
 project day to day. Act without asking, except in the areas listed under
 "Ask the owner first".
 
+The main session is the lead. It plans, delegates, judges results, and talks
+to the owner. It does not do routine work itself.
+
+- **Delegate and keep working.** Start agents in the background, each in its
+  own worktree, and carry on with other things while they run.
+- **Take back conclusions, not transcripts.** Every agent returns a short
+  report. The detail goes on the issue, where the next agent can find it.
+- **Run independent tasks in parallel**, up to three agents at a time. The
+  epic's "Order of work" says which tasks are independent. One agent per
+  issue.
+- **Verify before trusting.** Re-run the checks an agent reports, and test
+  its most important claim yourself.
+- **Write the brief as if to a stranger.** An agent knows only what its
+  prompt and the issue tell it.
+
 ## Every session
 
 Agent sessions end and context is lost. The project board is the memory.
@@ -68,8 +83,12 @@ gh api -X POST repos/graylayer-labs/ssl-aerial-person-detection/issues/<parent>/
 ```
 
 ```bash
-gh project item-list 1 --owner graylayer-labs --format json   # read status
-gh issue view <n> --comments                                  # read a task
+gh project item-list 1 --owner graylayer-labs --format json --limit 100   # status
+
+# read a task in full. `gh issue view <n> --comments` can omit the body.
+gh issue view <n> --json title,body,labels,comments --jq \
+  '.title, ([.labels[].name] | join(", ")), .body,
+   (.comments[] | "--- comment " + .createdAt, .body)'
 
 # move an item (get <item-id> from item-list)
 gh project item-edit --project-id PVT_kwDOEDMalc4BlE5m --id <item-id> \
@@ -77,16 +96,23 @@ gh project item-edit --project-id PVT_kwDOEDMalc4BlE5m --id <item-id> \
 # options: Todo f75ad846 · In Progress 47fc9ee4 · Done 98236657
 ```
 
-Labels: `agent:fable|opus|sonnet|haiku` (who should do it), `needs-owner`
-(blocked on the owner), `tooling-candidate`. The `data:`, `model:`, `source:`,
-and `status:` labels come from the org template and are not used here.
+Labels in use: `agent:fable|opus|sonnet|haiku` (which model), `type:bug`,
+`type:enhancement`, `type:documentation`, `type:experiment`, `epic`,
+`needs-owner` (blocked on the owner), and `tooling-candidate`. The `data:`,
+`model:`, `source:`, and `status:` labels come from the org template and are
+not used here.
+
+Two standing issues never close: "Reusable tooling candidates" (#9) and
+"Audit log" (#24).
 
 ## Do freely
 
 - Create branches, commit, push branches, open and update PRs.
 - Create, edit, comment on, and close issues. Update the board.
-- Merge PRs. `main` is protected: nothing is pushed to it directly, and a PR
-  merges only when the `checks` CI job passes. No human review is required.
+- Merge PRs. `main` is protected: nothing is pushed to it directly, a PR
+  merges only when the `checks` CI job passes, and every commit on it must be
+  signed. GitHub signs squash merges itself, so merge through GitHub and
+  never locally. No human review is required.
   Set a PR to merge itself with `gh pr merge <n> --auto --squash`.
 - Delete superseded code and docs. Git history is the archive.
 - Delete and regenerate anything under `data/manifests/` and `outputs/`.
@@ -160,6 +186,7 @@ uv run ty check                # types
   does not run `ty` until then.
 - Inside an agent worktree, `uv run` warns that `VIRTUAL_ENV` does not match.
   It is harmless. Prefix the command with `env -u VIRTUAL_ENV` to silence it.
+- A fresh worktree has no environment. Run `uv sync --dev` first.
 
 ## Data
 
@@ -208,8 +235,15 @@ re-derive it. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
 ## Experiments
 
+- **No "works on my machine".** A run whose result is quoted anywhere comes
+  from a commit on `main`, with a clean working tree. Merge the code first,
+  then run it.
+- A run from a branch or a dirty tree is a scratch run. Use it to debug. Never
+  quote its numbers.
 - Every run is defined by a committed config and a seed, and writes to
-  `outputs/<run-name>/`.
+  `outputs/<run-name>/` with a `run.json` that records the commit, the config,
+  the seed, and the machine. Issue #23 adds the module that enforces this;
+  until it lands, record the commit by hand in the issue.
 - Size runs for the laptop first. Aim for under 30 minutes.
 - Any number quoted in a doc or README must be reproducible from a committed
   config. If a number cannot be traced, remove it.
@@ -238,13 +272,28 @@ table says which agent to run on it.
 | `agent:haiku` | Mechanical edits | `implementer`, with the model set to Haiku |
 | `agent:haiku` | Read-only audits | `repo-janitor` |
 
-The `reviewer` agent runs on Opus and only reviews. It never implements.
-Delegate rather than doing routine work in an expensive session.
+- To set the model, pass `model` on the Agent call, for example
+  `subagent_type: "implementer", model: "opus"`. Without it, `implementer`
+  runs on Sonnet.
+- Where a label fits two rows, the issue's "Suggested model" section says
+  which agent to use.
 
-## Keeping the repo clean
+Agents that are not tied to a label:
 
-- `/tidy` runs an audit and cleans up on a branch. Run it at the end of every
-  milestone and whenever the repo feels out of step with the docs.
+| Agent | Model | Use |
+|---|---|---|
+| `reviewer` | Opus | Reviews a branch before merge. Never implements |
+| `researcher` | Sonnet | Surveys with cited sources. Changes nothing |
+| `process-auditor` | Sonnet | Checks that protocols were followed; fixes process records |
+| `repo-janitor` | Haiku | Reports drift and clutter in the repo. Changes nothing |
+
+## Keeping the project honest
+
+| Skill | Checks | Run it |
+|---|---|---|
+| `/tidy` | The repo: stale docs, dead code, stray files | End of every epic |
+| `/audit` | The process: trails, evidence, reviews, board, agent files | End of every epic, and after every five closed issues |
+| `/coldstart` | The instructions: can a new agent orient itself | After any change to this file, an agent, or a skill |
 
 ## Reusable tooling
 
