@@ -226,11 +226,18 @@ def test_inputs_are_recorded_with_sha256(repo: Path, tmp_path: Path) -> None:
     ]
 
 
-def make_checkpoint(directory: Path, scratch: bool) -> Path:
+def make_checkpoint(directory: Path, scratch: bool, status: str = "completed") -> Path:
     directory.mkdir()
     (directory / "model.pt").write_text("weights")
     (directory / "run.json").write_text(
-        json.dumps({"run_name": "parent", "scratch": scratch, "commit": "abc"})
+        json.dumps(
+            {
+                "run_name": "parent",
+                "scratch": scratch,
+                "commit": "abc",
+                "status": status,
+            }
+        )
     )
     return directory / "model.pt"
 
@@ -250,6 +257,17 @@ def test_normal_run_refuses_scratch_checkpoint(repo: Path, tmp_path: Path) -> No
     ckpt = make_checkpoint(tmp_path / "p", scratch=True)
     with pytest.raises(ProvenanceError, match="scratch"):
         run(repo, checkpoint=ckpt)
+
+
+@pytest.mark.parametrize("status", ["started", "failed"])
+def test_normal_run_refuses_checkpoint_from_unfinished_run(
+    repo: Path, tmp_path: Path, status: str
+) -> None:
+    # A run that crashed may have saved a checkpoint partway through.
+    ckpt = make_checkpoint(tmp_path / "p", scratch=False, status=status)
+    with pytest.raises(ProvenanceError, match=status):
+        run(repo, checkpoint=ckpt)
+    assert not (repo / "outputs").exists()
 
 
 def test_normal_run_refuses_checkpoint_without_run_json(

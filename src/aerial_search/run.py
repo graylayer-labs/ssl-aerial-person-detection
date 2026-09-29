@@ -160,6 +160,7 @@ def _parent(checkpoint: Path, scratch: bool) -> dict[str, Any] | None:
             "path": str(record_path),
         }
         is_scratch = record.get("scratch") is not False
+        status = record.get("status")
     except (OSError, ValueError):
         if scratch:
             return None
@@ -173,6 +174,13 @@ def _parent(checkpoint: Path, scratch: bool) -> dict[str, Any] | None:
             f"checkpoint {checkpoint} comes from a scratch run ({record_path} "
             'has "scratch" not false). Use a checkpoint from a normal run, or '
             "pass --scratch."
+        )
+    if status != "completed" and not scratch:
+        # A run that crashed may have saved a checkpoint partway through.
+        raise ProvenanceError(
+            f"checkpoint {checkpoint} comes from a run that did not complete "
+            f'({record_path} has "status": {json.dumps(status)}). Use a '
+            "checkpoint from a completed run, or pass --scratch."
         )
     return parent
 
