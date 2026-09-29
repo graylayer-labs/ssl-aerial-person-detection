@@ -273,8 +273,13 @@ to its issue or PR. No version numbers.
   quote its numbers.
 - Every run is defined by a committed config and a seed, and writes to
   `outputs/<run-name>/` with a `run.json` that records the commit, the config,
-  the seed, and the machine. Issue #23 adds the module that enforces this;
-  until it lands, record the commit by hand in the issue.
+  the seed, and the machine. `src/aerial_search/run.py` (`start_run`) enforces
+  this: it refuses a normal run unless the tree is clean (untracked files
+  count) and `HEAD` is on the local `origin/main`, and it fails closed if git
+  cannot tell. It never fetches, so run `git fetch` first. Pass `--scratch` to
+  `train-ssl` or `train-detector` for a debugging run: it writes to
+  `outputs/scratch-<run-name>/` with `"scratch": true` in `run.json`. A run
+  directory is never overwritten; pick another `--run-name`.
 - Size runs for the laptop first. Aim for under 30 minutes.
 - Any number quoted in a doc or README must be reproducible from a committed
   config. If a number cannot be traced, remove it.
