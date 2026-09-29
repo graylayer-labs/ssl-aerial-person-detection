@@ -1,0 +1,211 @@
+# ssl-aerial-person-detection
+
+Read the intent first. It explains why the project exists and how decisions are
+made, and it overrides anything below that conflicts with it.
+
+@INTENT.md
+
+## Who does what
+
+Eoin is the Product Owner. Claude agents do the engineering and run the
+project day to day. Act without asking, except in the areas listed under
+"Ask the owner first".
+
+## Every session
+
+Agent sessions end and context is lost. The project board is the memory.
+
+1. **Start** with `/pickup`. It reads the board and open issues and tells you
+   what is in progress and what is next. Do not start work from memory of a
+   previous conversation.
+2. **Work** on one issue at a time: one issue, one branch, one PR.
+3. **Record as you go.** Decisions, results, and dead ends go in a comment on
+   the issue, not only in the conversation.
+4. **End** with `/handoff`, even if the task is unfinished. The next agent
+   should be able to continue from the issue alone.
+
+If there is no issue for the work, create one from the task template.
+
+## Leave a trail
+
+Assume the next reader is an agent that has never seen this project. Every
+finished issue gets a closing comment, written with `/handoff`, that states:
+
+- what was done, with links to the PR and commits
+- the evidence: commands run and their output, or the numbers and the config
+  that produced them
+- decisions made and why
+- what was tried and did not work
+- what was found but left alone, and the issue that now tracks it
+
+Then add one line to the parent issue's "Decisions so far" list, linking to
+the closed issue. The parent stays a short index; the detail stays in the
+child.
+
+## The board
+
+- Board: https://github.com/orgs/graylayer-labs/projects/1 (project number 1,
+  owner `graylayer-labs`). It is private.
+- Issues: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues
+- Status lives on the board only: Todo, In Progress, Done.
+- **Epics** are parent issues labelled `epic`, one per milestone. Tasks are
+  their sub-issues. The epics in order are the roadmap; there is no separate
+  roadmap document.
+- Only the current epic has sub-issues. Later epics hold a short description
+  and get their tasks when the one before them closes.
+
+```bash
+# attach issue <child> to epic <parent> (needs the child's id, not its number)
+CHILD_ID=$(gh api repos/graylayer-labs/ssl-aerial-person-detection/issues/<child> --jq .id)
+gh api -X POST repos/graylayer-labs/ssl-aerial-person-detection/issues/<parent>/sub_issues \
+  -F sub_issue_id=$CHILD_ID
+```
+
+```bash
+gh project item-list 1 --owner graylayer-labs --format json   # read status
+gh issue view <n> --comments                                  # read a task
+
+# move an item (get <item-id> from item-list)
+gh project item-edit --project-id PVT_kwDOEDMalc4BlE5m --id <item-id> \
+  --field-id PVTSSF_lADOEDMalc4BlE5mzhjzG-Q --single-select-option-id <option>
+# options: Todo f75ad846 · In Progress 47fc9ee4 · Done 98236657
+```
+
+Labels: `agent:fable|opus|sonnet|haiku` (who should do it), `needs-owner`
+(blocked on the owner), `tooling-candidate`. The `data:`, `model:`, `source:`,
+and `status:` labels come from the org template and are not used here.
+
+## Do freely
+
+- Create branches, commit, push branches, open and update PRs.
+- Create, edit, comment on, and close issues. Update the board.
+- Merge PRs. `main` is protected: nothing is pushed to it directly, and a PR
+  merges only when the `checks` CI job passes. No human review is required.
+  Set a PR to merge itself with `gh pr merge <n> --auto --squash`.
+- Delete superseded code and docs. Git history is the archive.
+- Short laptop runs.
+- Free or near-free AWS: S3 storage for project data, and free-tier
+  instances.
+
+### Review before merge
+
+CI proves the code runs. It does not prove a result is valid.
+
+- Changes to logic under `src/`, to experiments, or to metrics: the
+  `reviewer` agent checks the branch before auto-merge is set.
+- Docs, config, and formatting-only changes: the main session reads the diff
+  itself.
+- Say in the PR which of the two happened.
+
+## Ask the owner first
+
+- Spending real money: paid cloud instances, SageMaker, or any paid service.
+  Give the reason a laptop run will not do and a cost estimate.
+- Deleting data under `data/` or in S3, or anything else that cannot be
+  recovered.
+- Force-pushing, rewriting history, or deleting a remote branch that has
+  unmerged work.
+- Changing the purpose, standard, or non-goals in `INTENT.md`.
+- Anything public beyond the repo itself: blog posts, releases, repo
+  visibility or settings, making the board public.
+- Installing third-party plugins, skills, hooks, or MCP servers.
+- A laptop run expected to take over an hour. Prefer a cloud instance for
+  long runs, which is a spending request.
+- Merging a PR that the reviewer flagged.
+- Changing branch protection or other repository settings.
+
+`.claude/settings.json` backs these up with permission rules. The rules are a
+safety net, not the definition; this list is.
+
+## Showing the owner
+
+The owner sees only what is put in front of them. They do not browse the repo
+or the board unprompted.
+
+- When something needs their eyes, open it (`open <url>` or `open <file>`)
+  and say what to look at and why.
+- Put the key content in the message itself. Do not reply with only a path.
+- Ask decisions as direct questions in the conversation. Do not leave
+  placeholders in files for the owner to fill in.
+- End each session with a short summary: what changed, what was decided, what
+  needs them.
+
+## Commands
+
+```bash
+uv sync --dev                  # install
+uv run pytest                  # tests
+uv run ruff check --fix .      # lint
+uv run ruff format .           # format
+uv run ty check                # types
+```
+
+## Layout
+
+```
+src/aerial_search/   package: data/, models/, experiments/
+tests/               tests for the package
+notebooks/           analysis notebooks, numbered
+docs/                milestone write-ups and decision notes
+tools/               one-off scripts that are worth keeping
+data/                datasets and manifests (git-ignored)
+outputs/             run artefacts (git-ignored)
+```
+
+## Documentation
+
+Keep it short, and keep one home for each fact.
+
+| Fact | Home |
+|---|---|
+| Why the project exists | `INTENT.md` |
+| How to work here | this file |
+| What is planned or in progress | the board |
+| Why a technical choice was made | `docs/decisions.md`, one line each |
+| What a milestone found | `docs/milestones/<name>.md` |
+
+Write a decision down when a future agent would otherwise have to guess or
+re-derive it. Format: `YYYY-MM-DD · chose X over Y · reason`.
+
+## Experiments
+
+- Every run is defined by a committed config and a seed, and writes to
+  `outputs/<run-name>/`.
+- Size runs for the laptop first. Aim for under 30 minutes.
+- Any number quoted in a doc or README must be reproducible from a committed
+  config. If a number cannot be traced, remove it.
+- Report negative results. State what was expected, what happened, and the
+  most likely reason.
+- Always compare against a baseline on a held-out split. Splits are by flight,
+  never by frame, because neighbouring frames are near-duplicates.
+
+## Tests
+
+Test what would silently corrupt results: pairing, splits, label handling,
+metrics. Skip tests that only restate the implementation.
+
+## Model tiering
+
+The owner pays for usage. Use the cheapest model that can do the job well.
+
+| Model | Use for | Agent |
+|---|---|---|
+| Fable | Milestone design, experiment analysis, final judgement | main session |
+| Opus | Review, hard debugging | `reviewer` |
+| Sonnet | Implementing a well-specified issue | `implementer` |
+| Haiku | Audits, searches, mechanical edits | `repo-janitor` |
+
+Each issue carries an `agent:<model>` label. Delegate to the matching agent
+rather than doing routine work in an expensive session.
+
+## Keeping the repo clean
+
+- `/tidy` runs an audit and cleans up on a branch. Run it at the end of every
+  milestone and whenever the repo feels out of step with the docs.
+
+## Reusable tooling
+
+When you do something by hand that a future agent or another project would
+repeat, add a comment to issue #9: what the step was, and whether it fits a
+skill, a command, an agent, or a hook. Do not build it on the spot unless the
+current issue asks for it.
