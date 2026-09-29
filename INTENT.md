@@ -80,8 +80,9 @@ milestone then at a later one. Older methods are welcome as baselines.
 - Cloud (SageMaker) is unlocked in stages, each stage justified by a working
   prototype. Cost is a personal expense and is treated as one.
 
-<!-- TODO(human): the gate for cloud spend. What evidence unlocks a stage, and
-     what is the spending ceiling per stage or per month? -->
+- **Gate.** No cloud spend without the owner's approval. A request states what
+  the laptop prototype showed, what the cloud run is expected to add, and an
+  estimated cost. The owner sets the ceiling for each stage when approving it.
 
 ## Non-goals
 
