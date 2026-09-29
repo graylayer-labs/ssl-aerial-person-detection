@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from aerial_search.run import ProvenanceError, start_run
+from aerial_search import run as run_module
+from aerial_search.run import ProvenanceError, finish_run, start_run
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -37,7 +38,13 @@ def repo(tmp_path: Path) -> Path:
     return path
 
 
-def run(repo: Path, name: str = "exp", scratch: bool = False) -> Path:
+def run(
+    repo: Path | None,
+    name: str = "exp",
+    scratch: bool = False,
+    inputs: tuple[Path, ...] = (),
+    checkpoint: Path | None = None,
+) -> Path:
     return start_run(
         name,
         {"epochs": 2, "path": Path("x")},
@@ -46,6 +53,8 @@ def run(repo: Path, name: str = "exp", scratch: bool = False) -> Path:
         scratch=scratch,
         argv=["aerial-search", "train-ssl"],
         repo=repo,
+        inputs=inputs,
+        checkpoint=checkpoint,
     )
 
 
@@ -146,3 +155,150 @@ def test_existing_scratch_run_is_never_overwritten(repo: Path) -> None:
     run(repo, scratch=True)
     with pytest.raises(ProvenanceError, match="exists"):
         run(repo, scratch=True)
+
+
+def read(directory: Path) -> dict:
+    return json.loads((directory / "run.json").read_text())
+
+
+def test_run_is_marked_started_then_completed(repo: Path) -> None:
+    out = run(repo)
+    assert read(out)["status"] == "started"
+    finish_run(out)
+    data = read(out)
+    assert data["status"] == "completed"
+    assert data["finished_at"]
+
+
+def test_run_is_marked_failed_with_error(repo: Path) -> None:
+    out = run(repo)
+    finish_run(out, ValueError("boom"))
+    data = read(out)
+    assert data["status"] == "failed"
+    assert data["error"] == {"type": "ValueError", "message": "boom"}
+
+
+def test_code_repository_is_used_not_current_directory(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    other = tmp_path / "other"
+    other.mkdir()
+    git(other, "init", "-b", "main")
+    git(other, "commit", "--allow-empty", "-m", "i")
+    git(other, "update-ref", "refs/remotes/origin/main", "HEAD")
+    (repo / "new.py").write_text("x")  # the code repo is dirty
+    monkeypatch.setattr(run_module, "_code_location", lambda: repo)
+    monkeypatch.chdir(other)
+    with pytest.raises(ProvenanceError, match="uncommitted"):
+        run(None)
+    assert not (other / "outputs").exists()
+
+
+def test_outputs_are_created_at_the_repository_root(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sub = repo / "src" / "pkg"
+    sub.mkdir(parents=True)
+    monkeypatch.setattr(run_module, "_code_location", lambda: sub)
+    monkeypatch.chdir(tmp_path)
+    assert run(None) == repo / "outputs" / "exp"
+
+
+def test_code_outside_a_git_work_tree_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(run_module, "_code_location", lambda: tmp_path)
+    with pytest.raises(ProvenanceError, match="git work tree"):
+        run(None)
+
+
+def test_inputs_are_recorded_with_sha256(repo: Path, tmp_path: Path) -> None:
+    f = tmp_path / "train.jsonl"
+    f.write_text("abc")
+    data = read(run(repo, inputs=(f,)))
+    assert data["inputs"] == [
+        {
+            "path": str(f),
+            "sha256": (
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+            ),
+        }
+    ]
+
+
+def make_checkpoint(directory: Path, scratch: bool) -> Path:
+    directory.mkdir()
+    (directory / "model.pt").write_text("weights")
+    (directory / "run.json").write_text(
+        json.dumps({"run_name": "parent", "scratch": scratch, "commit": "abc"})
+    )
+    return directory / "model.pt"
+
+
+def test_normal_run_accepts_checkpoint_from_normal_run(
+    repo: Path, tmp_path: Path
+) -> None:
+    ckpt = make_checkpoint(tmp_path / "p", scratch=False)
+    data = read(run(repo, checkpoint=ckpt))
+    assert data["parent"]["run_name"] == "parent"
+    assert data["parent"]["commit"] == "abc"
+    assert data["inputs"][0]["path"] == str(ckpt)
+    assert len(data["inputs"][0]["sha256"]) == 64
+
+
+def test_normal_run_refuses_scratch_checkpoint(repo: Path, tmp_path: Path) -> None:
+    ckpt = make_checkpoint(tmp_path / "p", scratch=True)
+    with pytest.raises(ProvenanceError, match="scratch"):
+        run(repo, checkpoint=ckpt)
+
+
+def test_normal_run_refuses_checkpoint_without_run_json(
+    repo: Path, tmp_path: Path
+) -> None:
+    ckpt = make_checkpoint(tmp_path / "p", scratch=False)
+    (ckpt.parent / "run.json").unlink()
+    with pytest.raises(ProvenanceError, match=r"run\.json"):
+        run(repo, checkpoint=ckpt)
+    assert not (repo / "outputs").exists()
+
+
+def test_scratch_run_accepts_any_checkpoint(repo: Path, tmp_path: Path) -> None:
+    ckpt = make_checkpoint(tmp_path / "p", scratch=True)
+    assert run(repo, scratch=True, checkpoint=ckpt).exists()
+    bare = tmp_path / "bare.pt"
+    bare.write_text("w")
+    assert run(repo, name="b", scratch=True, checkpoint=bare).exists()
+
+
+def test_skip_worktree_and_assume_unchanged_refused(repo: Path) -> None:
+    (repo / "t.py").write_text("1")
+    git(repo, "add", "t.py")
+    git(repo, "commit", "-m", "t")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    git(repo, "update-index", "--skip-worktree", "t.py")
+    (repo / "t.py").write_text("2")
+    with pytest.raises(ProvenanceError, match=r"t\.py"):
+        run(repo)
+    git(repo, "update-index", "--no-skip-worktree", "t.py")
+    git(repo, "update-index", "--assume-unchanged", "t.py")
+    with pytest.raises(ProvenanceError, match=r"t\.py"):
+        run(repo)
+
+
+def test_scratch_without_origin_main_keeps_commit_and_dirty(repo: Path) -> None:
+    git(repo, "update-ref", "-d", "refs/remotes/origin/main")
+    (repo / "new.py").write_text("x")
+    data = read(run(repo, scratch=True))
+    assert data["commit"] == git(repo, "rev-parse", "HEAD")
+    assert "new.py" in data["dirty"]
+    assert data["commit_on_main"] is None
+
+
+def test_code_in_an_ignored_directory_refused(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ignored = repo / "outputs" / "site-packages"
+    ignored.mkdir(parents=True)
+    monkeypatch.setattr(run_module, "_code_location", lambda: ignored)
+    with pytest.raises(ProvenanceError, match="ignored"):
+        run(None)
