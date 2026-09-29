@@ -32,8 +32,9 @@ conversations.
    - What is ready to start next, in board order.
    - Anything that looks wrong, such as a branch with no issue or an issue in
      progress with no branch.
-6. Recommend one issue to work on and say which model tier it suggests. Wait
-   for the owner to confirm before starting.
+6. Pick the next issue and say which one and why. Start on it unless it is
+   labelled `needs-owner` or falls under "Ask the owner first" in
+   `CLAUDE.md`. Delegate to the agent named by its `agent:` label.
 
 ## Rules
 

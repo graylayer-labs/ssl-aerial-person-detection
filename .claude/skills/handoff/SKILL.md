@@ -15,11 +15,12 @@ conversation.
    uncommitted and why.
 2. Run `uv run pytest` and `uv run ruff check .` and note the result.
 3. Draft a comment for the issue using the template below.
-4. Show the owner the comment, then post it with `gh issue comment <number>`
-   once they agree.
+4. Post it with `gh issue comment <number>`.
 5. Update the issue's status on the board if it changed.
-6. If the session surfaced follow-up work, list it as proposed issues for the
-   owner. Do not create them without asking.
+6. If the session surfaced follow-up work, create issues for it from the task
+   template and add them to the board.
+7. Tell the owner, in the conversation: what changed, what was decided, and
+   what needs them. Open anything they need to look at.
 
 ## Comment template
 
