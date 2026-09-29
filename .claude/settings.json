@@ -14,7 +14,13 @@
       "Bash(git push -u origin *)",
       "Bash(aws s3 ls *)",
       "Bash(aws s3 cp *)",
-      "Bash(aws sts get-caller-identity *)"
+      "Bash(aws sts get-caller-identity *)",
+      "Bash(node .claude/skills/archify/bin/archify.mjs finalize *)",
+      "Bash(node .claude/skills/archify/bin/archify.mjs validate *)",
+      "Bash(node .claude/skills/archify/bin/archify.mjs check *)",
+      "Bash(node .claude/skills/archify/bin/archify.mjs doctor *)",
+      "Bash(node .claude/skills/archify/bin/archify.mjs guide *)",
+      "Bash(node .claude/skills/archify/bin/archify.mjs demo *)"
     ],
     "ask": [
       "Bash(gh repo edit *)",
@@ -36,7 +42,12 @@
       "Bash(rm -rf data)",
       "Bash(rm -rf data/)",
       "Bash(rm -rf data/raw*)",
-      "Bash(rm -rf ./data/raw*)"
+      "Bash(rm -rf ./data/raw*)",
+      "Bash(node .claude/skills/archify/bin/archify.mjs brands *)",
+      "Bash(node .claude/skills/archify/bin/archify.mjs preview *)",
+      "Bash(node .claude/skills/archify/scripts/check-update.mjs*)",
+      "Bash(node .claude/skills/archify/bin/recover-output.mjs*)",
+      "Bash(npm install *)"
     ]
   },
   "autoMode": {
@@ -51,7 +62,11 @@
   },
   "worktree": {
     "symlinkDirectories": [
-      "data"
+      "data",
+      ".claude/skills/archify"
     ]
+  },
+  "env": {
+    "ARCHIFY_UPDATE_CHECK_DISABLED": "1"
   }
 }

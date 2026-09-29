@@ -192,6 +192,7 @@ uv run pytest                  # tests
 uv run ruff check --fix .      # lint
 uv run ruff format .           # format
 uv run ty check                # types
+tools/install_archify.sh       # one-time: install the Archify diagram skill
 ```
 
 - `ty check` reports two errors in `src/aerial_search/data/wisard.py` on
@@ -200,6 +201,24 @@ uv run ty check                # types
 - Inside an agent worktree, `uv run` warns that `VIRTUAL_ENV` does not match.
   It is harmless. Prefix the command with `env -u VIRTUAL_ENV` to silence it.
 - A fresh worktree has no environment. Run `uv sync --dev` first.
+
+## Diagrams
+
+- **Mermaid** for drafts and working documents. It costs few tokens and GitHub
+  renders it.
+- **Archify** for finished figures: the README, milestone write-ups, and blog
+  posts. Figures and their source JSON live in `docs/figures/`, for example
+  `pipeline.svg` and `pipeline.archify.json`.
+- Install once with `tools/install_archify.sh`. It fetches a pinned, verified
+  commit into `.claude/skills/archify/`, which is git-ignored, and refuses to
+  install if the commit differs. `--force` replaces an existing install.
+- Limits, enforced in `.claude/settings.json`:
+  - No brand URLs in a diagram. Brand capture fetches from the network.
+  - Never pass `--open`.
+  - Never run `preview`.
+- Archify has no command-line SVG export. Export from the viewer's Export menu,
+  and commit only the SVG and its JSON, never anything from `.archify/`. Check
+  the SVG for absolute paths first.
 
 ## Data
 

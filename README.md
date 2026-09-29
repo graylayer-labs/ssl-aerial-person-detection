@@ -25,6 +25,8 @@ how few labels it then needs.
 3. Train a person detector on top with a small fraction of the labels.
 4. Measure everything against a baseline on flights the model has never seen.
 
+![Pipeline diagram. RGB and thermal drone footage, mostly unlabelled, is paired frame by frame. A pretrained vision foundation model is adapted to the paired footage with self-supervised learning. A person detector is trained on top using a small labelled fraction, then evaluated on flights the model has never seen.](docs/figures/pipeline.svg)
+
 [INTENT.md](INTENT.md) explains the purpose and the standard the work is held
 to.
 
