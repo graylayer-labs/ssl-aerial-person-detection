@@ -53,6 +53,12 @@ child.
   roadmap document.
 - Only the current epic has sub-issues. Later epics hold a short description
   and get their tasks when the one before them closes.
+- The current epic's body has an "Order of work" section. Follow it. The
+  board does not rank tasks.
+- An epic is In Progress for as long as any of its tasks is open. That row is
+  not a task; look at its sub-issues.
+- `gh project` commands fail now and then with `unknown owner type`. Run the
+  command again.
 
 ```bash
 # attach issue <child> to epic <parent> (needs the child's id, not its number)
@@ -83,6 +89,8 @@ and `status:` labels come from the org template and are not used here.
   merges only when the `checks` CI job passes. No human review is required.
   Set a PR to merge itself with `gh pr merge <n> --auto --squash`.
 - Delete superseded code and docs. Git history is the archive.
+- Delete and regenerate anything under `data/manifests/` and `outputs/`.
+  These are produced by committed code.
 - Short laptop runs.
 - Free or near-free AWS: S3 storage for project data, and free-tier
   instances.
@@ -101,8 +109,8 @@ CI proves the code runs. It does not prove a result is valid.
 
 - Spending real money: paid cloud instances, SageMaker, or any paid service.
   Give the reason a laptop run will not do and a cost estimate.
-- Deleting data under `data/` or in S3, or anything else that cannot be
-  recovered.
+- Deleting raw data under `data/raw/` or anything in S3, or anything else
+  that cannot be recovered.
 - Force-pushing, rewriting history, or deleting a remote branch that has
   unmerged work.
 - Changing the purpose, standard, or non-goals in `INTENT.md`.
@@ -116,6 +124,13 @@ CI proves the code runs. It does not prove a result is valid.
 
 `.claude/settings.json` backs these up with permission rules. The rules are a
 safety net, not the definition; this list is.
+
+### When a task needs the owner partway through
+
+Some issues have one step only the owner can do, such as looking at a figure.
+Do everything else first. Then add the `needs-owner` label, leave the issue
+In Progress, open what they need to see, and ask them in the conversation.
+Do not close the issue or tick that criterion yourself.
 
 ## Showing the owner
 
@@ -140,6 +155,29 @@ uv run ruff format .           # format
 uv run ty check                # types
 ```
 
+- `ty check` reports two errors in `src/aerial_search/data/wisard.py` on
+  `main`. They come from the pairing bug in issue #2 and are fixed there. CI
+  does not run `ty` until then.
+- Inside an agent worktree, `uv run` warns that `VIRTUAL_ENV` does not match.
+  It is harmless. Prefix the command with `env -u VIRTUAL_ENV` to silence it.
+
+## Data
+
+`data/` is git-ignored, so a fresh clone or worktree has none.
+
+| What | Where |
+|---|---|
+| Raw WiSARD images and labels, 122 GB | `data/raw/` in the main checkout |
+| Manifests, regenerable | `data/manifests/` in the main checkout |
+| Archive of the raw data | S3 bucket `ssl-aerial-person-detection-data-eu-west1`, region `eu-west-1`. Not re-verified; see issue #7 |
+
+- The main checkout is the first path printed by `git worktree list`.
+- Agent worktrees get `data/` as a symlink to the main checkout's copy, set in
+  `.claude/settings.json`. If `data/` is missing, read it from the main
+  checkout by absolute path.
+- If a task needs data you cannot reach, stop and say so. Do not invent
+  figures or regenerate from nothing.
+
 ## Layout
 
 ```
@@ -162,7 +200,8 @@ Keep it short, and keep one home for each fact.
 | How to work here | this file |
 | What is planned or in progress | the board |
 | Why a technical choice was made | `docs/decisions.md`, one line each |
-| What a milestone found | `docs/milestones/<name>.md` |
+| The evidence behind a decision, when it is long | `docs/<topic>-review.md` |
+| What a milestone found | `docs/milestones/<name>.md`, created with the first write-up |
 
 Write a decision down when a future agent would otherwise have to guess or
 re-derive it. Format: `YYYY-MM-DD · chose X over Y · reason`.
@@ -188,15 +227,19 @@ metrics. Skip tests that only restate the implementation.
 
 The owner pays for usage. Use the cheapest model that can do the job well.
 
-| Model | Use for | Agent |
-|---|---|---|
-| Fable | Milestone design, experiment analysis, final judgement | main session |
-| Opus | Review, hard debugging | `reviewer` |
-| Sonnet | Implementing a well-specified issue | `implementer` |
-| Haiku | Audits, searches, mechanical edits | `repo-janitor` |
+Each issue carries an `agent:<model>` label. It names the model, and the
+table says which agent to run on it.
 
-Each issue carries an `agent:<model>` label. Delegate to the matching agent
-rather than doing routine work in an expensive session.
+| Label | Kind of work | Who does it |
+|---|---|---|
+| `agent:fable` | Milestone design, experiment analysis, final judgement | The main session |
+| `agent:opus` | Implementation where a wrong answer is costly, hard debugging | `implementer`, with the model set to Opus |
+| `agent:sonnet` | Implementing a well-specified issue | `implementer` |
+| `agent:haiku` | Mechanical edits | `implementer`, with the model set to Haiku |
+| `agent:haiku` | Read-only audits | `repo-janitor` |
+
+The `reviewer` agent runs on Opus and only reviews. It never implements.
+Delegate rather than doing routine work in an expensive session.
 
 ## Keeping the repo clean
 

@@ -2,6 +2,8 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
+- 2026-09-29 · chose to treat `data/manifests/` as regenerable and `data/raw/` as protected over one rule for all of `data/` · manifests come from committed code; raw data is 122 GB and slow to restore.
+- 2026-09-29 · chose a cold-start test (a fresh agent, read-only, reporting what confused it) over trusting the docs by reading them · the author of the docs cannot see what they left out.
 - 2026-09-29 · chose to pin the frame-number parsing bug as a strict expected failure over fixing it in the lint PR · changing pairing needs the verification in #2; the pinned test keeps the bug visible while CI is green.
 - 2026-09-29 · chose CI-gated auto-merge with no required human review over review-gated merges · the owner does not review every PR; agent review covers logic changes and CI covers the rest.
 - 2026-09-29 · chose parent issues labelled `epic` as the roadmap over a roadmap document or board date fields · one place to look, no extra upkeep.

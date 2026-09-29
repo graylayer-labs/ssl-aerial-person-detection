@@ -18,26 +18,31 @@ conversations.
    ```
    Uncommitted changes or unmerged branches usually mean a previous session
    stopped mid-task.
-3. Read the board:
+3. Read the board. If a `gh project` command fails with `unknown owner type`,
+   run it again.
    ```bash
-   gh project list --owner graylayer-labs
-   gh project item-list <number> --owner graylayer-labs --format json
+   gh project item-list 1 --owner graylayer-labs --format json --limit 100
    gh pr list --state open
    ```
-4. Read the current epic (the open issue labelled `epic` that has
-   sub-issues). Its "Decisions so far" list is the short history of the
-   milestone.
+4. Read the current epic: the issue labelled `epic` that is In Progress. Its
+   "Decisions so far" list is the short history of the milestone, and its
+   "Order of work" section says what comes next. The epic itself is not a
+   task.
 5. For each item that is **In progress**, read the issue and its comments with
    `gh issue view <number> --comments`. The last handoff comment says where
    the work stopped.
 6. Report to the owner, briefly:
-   - What is in progress and where it stopped.
-   - What is ready to start next, in board order.
+   - What is in progress and where it stopped. If no task is in progress, say
+     so.
+   - What is ready to start next, following the epic's order of work.
    - Anything that looks wrong, such as a branch with no issue or an issue in
      progress with no branch.
 7. Pick the next issue and say which one and why. Start on it unless it is
    labelled `needs-owner` or falls under "Ask the owner first" in
-   `CLAUDE.md`. Delegate to the agent named by its `agent:` label.
+   `CLAUDE.md`. Its `agent:` label names the model; the tiering table in
+   `CLAUDE.md` says which agent to run.
+8. Check that the task's data is reachable before starting. See "Data" in
+   `CLAUDE.md`.
 
 ## Rules
 
