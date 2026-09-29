@@ -43,14 +43,15 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "lags":
-        dirs = [d for pair in WISARD_COLLECTIONS.values() for d in pair]
+        dirs = [
+            d for c in WISARD_COLLECTIONS.values() for d in (c.rgb_dir, c.thermal_dir)
+        ]
         _cache_all(args.source, dirs)
         print("| collection | whole | first third | middle third | last third |")
         print("|---|---|---|---|---|")
-        for cid, (rgb, thermal) in WISARD_COLLECTIONS.items():
-            if not (args.source / rgb).is_dir():
-                continue
-            cells = _lags_by_third(_shifts(rgb), _shifts(thermal))
+        # Lags are measured from equal frame numbers, before any thermal_offset.
+        for cid, c in WISARD_COLLECTIONS.items():
+            cells = _lags_by_third(_shifts(c.rgb_dir), _shifts(c.thermal_dir))
             print(f"| {cid} | " + " | ".join(cells) + " |")
     else:
         _cache_all(args.source, [args.rgb_dir, args.thermal_dir])
