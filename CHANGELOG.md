@@ -49,6 +49,11 @@ each links to the issue or pull request that holds the detail.
   ([#20](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/20))
 - A process audit, with a standing log of its findings.
   ([#24](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/24))
+- Archify, a third-party diagram skill for finished figures, installed by a
+  script that checks a pinned commit and kept out of the repository. Its update
+  check, brand fetch, and preview are blocked by settings. The README now shows
+  the first figure, the pipeline.
+  ([#30](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/30))
 
 **Removed**
 - The planning documents from the first attempt: `VISION.md`, `ROADMAP.md`,

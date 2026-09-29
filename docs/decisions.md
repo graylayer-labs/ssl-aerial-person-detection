@@ -2,6 +2,7 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
+- 2026-09-29 · chose Archify for finished figures, installed by a pinned-commit script and git-ignored, over committing its 7.3 MB of code or using Mermaid alone · Mermaid stays for drafts; the script checks the commit, so a moved tag cannot change what runs, and settings block its network and preview features. Approved by the owner; see #30.
 - 2026-09-29 · chose a public project board over a private one · the repo and its issues are already public, so the board exposes nothing new, and it shows visitors how the project is run. Approved by the owner; see #22.
 - 2026-09-29 · chose to fold `docs/PROBLEM.md` into the README over keeping it · the problem statement then has one home. See #6.
 - 2026-09-29 · chose to rely on GitHub signing each squash merge over the "require signed commits" rule · the rule was tried and blocked every PR, because it also demands signatures on the branch commits, which needs a local signing key that agents would hold. Commits on `main` are verified either way.
