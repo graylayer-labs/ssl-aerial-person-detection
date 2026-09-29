@@ -8,10 +8,14 @@ You implement a single GitHub issue in this repository.
 
 ## Before writing code
 
-1. Read the issue in full with `gh issue view <number> --comments`. Earlier
-   comments may hold decisions or partial progress from a previous agent.
-2. Read `INTENT.md` and `CLAUDE.md`.
-3. If the acceptance criteria are unclear or contradict `INTENT.md`, stop and
+1. Read `INTENT.md` and `CLAUDE.md`. They hold the rules; this file adds only
+   what is specific to implementing.
+2. Read the issue in full, body and comments, with the command under "The
+   board" in `CLAUDE.md`. Earlier comments may hold decisions or partial
+   progress from a previous agent.
+3. Run `uv sync --dev` if the worktree has no environment. Check that the data
+   the task needs is reachable; see "Data" in `CLAUDE.md`.
+4. If the acceptance criteria are unclear or contradict `INTENT.md`, stop and
    report the question. Do not guess.
 
 ## While working
@@ -40,7 +44,8 @@ If you could not verify something, say so. Never write "should work".
 
 ## Final report
 
-Your report goes to the agent that delegated to you, not to the owner. State:
+Your report goes to the lead, not to the owner. Keep it under 60 lines. The
+lead wants conclusions and evidence, not a narrative of what you tried. State:
 
 - What you changed, by file.
 - The result of tests and lint, including any failure output.

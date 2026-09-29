@@ -15,6 +15,7 @@ conversations.
    ```bash
    git status -sb
    git branch --no-merged main
+   git worktree list
    ```
    Uncommitted changes or unmerged branches usually mean a previous session
    stopped mid-task.
@@ -28,16 +29,17 @@ conversations.
    "Decisions so far" list is the short history of the milestone, and its
    "Order of work" section says what comes next. The epic itself is not a
    task.
-5. For each item that is **In progress**, read the issue and its comments with
-   `gh issue view <number> --comments`. The last handoff comment says where
-   the work stopped.
+5. For each item that is **In progress**, read the issue in full, body and
+   comments, with the command under "The board" in `CLAUDE.md`. The last
+   handoff comment says where the work stopped.
 6. Report to the owner, briefly:
    - What is in progress and where it stopped. If no task is in progress, say
      so.
    - What is ready to start next, following the epic's order of work.
    - Anything that looks wrong, such as a branch with no issue or an issue in
      progress with no branch.
-7. Pick the next issue and say which one and why. Start on it unless it is
+7. Pick the next issue and say which one and why. Tasks the epic marks as
+   independent may run in parallel, up to three agents at a time. Start on it unless it is
    labelled `needs-owner` or falls under "Ask the owner first" in
    `CLAUDE.md`. Its `agent:` label names the model; the tiering table in
    `CLAUDE.md` says which agent to run.
