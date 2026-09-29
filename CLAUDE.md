@@ -73,7 +73,7 @@ The owner pays for usage. Use the cheapest model that can do the job well.
 | Sonnet | Implementing a well-specified issue | `implementer` |
 | Haiku | Audits, searches, mechanical edits | `repo-janitor` |
 
-Each issue carries a `model:` suggestion. Delegate to the matching agent
+Each issue carries an `agent:<model>` label. Delegate to the matching agent
 rather than doing routine work in an expensive session.
 
 ## Keeping the repo clean
