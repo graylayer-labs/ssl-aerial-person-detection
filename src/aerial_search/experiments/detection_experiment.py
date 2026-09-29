@@ -71,9 +71,10 @@ def run_detection_experiment(
     epochs: int = 5,
     learning_rate: float = 3e-4,
     score_threshold: float = 0.5,
+    seed: int = 7,
 ) -> DetectionResult:
     """Train and evaluate a lightweight person-centre locator."""
-    torch.manual_seed(7)
+    torch.manual_seed(seed)
     device = get_device()
     train_data = LocationGrids(manifests / "train.jsonl", data_root, modality)
     validation_data = LocationGrids(manifests / "validation.jsonl", data_root, modality)
@@ -121,12 +122,9 @@ def run_detection_experiment(
         false_negatives=false_negatives,
         final_loss=final_loss,
     )
-    destination = output / modality / initialization
-    destination.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), destination / "model.pt")
-    (destination / "metrics.json").write_text(
-        json.dumps(asdict(result), indent=2) + "\n"
-    )
+    output.mkdir(parents=True, exist_ok=True)
+    torch.save(model.state_dict(), output / "model.pt")
+    (output / "metrics.json").write_text(json.dumps(asdict(result), indent=2) + "\n")
     return result
 
 
