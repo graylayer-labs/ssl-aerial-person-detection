@@ -317,6 +317,10 @@ to its issue or PR. No version numbers.
   most likely reason.
 - Always compare against a baseline on a held-out split. Splits are by flight,
   never by frame, because neighbouring frames are near-duplicates.
+- Every published table or figure that shows `ap_iou25` shows `ap_iou50`
+  beside it. The lower threshold is the primary metric for tiny people, and
+  the reader must be able to see how much it contributes. See
+  `docs/evaluation-metric-review.md`.
 
 ## Tests
 

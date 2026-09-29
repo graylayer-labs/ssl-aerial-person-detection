@@ -44,6 +44,13 @@ each links to the issue or pull request that holds the detail.
   ([#1](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/1))
 
 **Added**
+- A shared detection scorer. The primary metric is AP at IoU 0.25, because
+  people are a few pixels across; recall at 0.01, 0.1 and 1 false alarms per
+  image answers the search team's question. Results are split by modality,
+  flight and person size, and do not depend on the order of the input when
+  scores tie. Wherever `ap_iou25` is published, `ap_iou50` is shown beside it.
+  ([#4](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/4),
+  [review](docs/evaluation-metric-review.md))
 - `INTENT.md` and `CLAUDE.md`: why the project exists, and how agents work in
   it.
   ([#10](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/10))

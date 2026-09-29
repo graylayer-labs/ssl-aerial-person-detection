@@ -2,6 +2,7 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
+- 2026-09-29 · chose AP at IoU 0.25 plus recall at 0.01/0.1/1 false alarms per image, on pycocotools, over COCO AP 0.5:0.95 as the primary detection metric · people are a few pixels across: a 2 px diagonal error fails IoU 0.5 on people 10 px or smaller, and a 3 px error on people 16 px or smaller. AP50 is shown beside AP25 wherever AP25 is published. See `docs/evaluation-metric-review.md` and #4.
 - 2026-09-29 · chose Archify for finished figures, installed by a pinned-commit script and git-ignored, over committing its 7.3 MB of code or using Mermaid alone · Mermaid stays for drafts; the script checks the commit, so a moved tag cannot change what runs, and settings block its network and preview features. Approved by the owner; see #30.
 - 2026-09-29 · chose a public project board over a private one · the repo and its issues are already public, so the board exposes nothing new, and it shows visitors how the project is run. Approved by the owner; see #22.
 - 2026-09-29 · chose to fold `docs/PROBLEM.md` into the README over keeping it · the problem statement then has one home. See #6.
