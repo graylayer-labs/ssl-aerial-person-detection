@@ -24,6 +24,20 @@ You implement a single GitHub issue in this repository.
   `uv run ruff format .`, and `uv run pytest` before finishing.
 - Commit in logical units using Conventional Commits. Do not push.
 
+## Claims need evidence
+
+Do not say something works unless you ran the command that shows it, in this
+session, after your last change.
+
+- "Tests pass" needs the pytest output.
+- "The bug is fixed" needs a test that failed before the fix and passes after.
+- "The metric improved" needs the evaluation command, the split, the seed, and
+  both numbers.
+- "Training works" needs a loss that falls, or a tiny subset the model can
+  overfit.
+
+If you could not verify something, say so. Never write "should work".
+
 ## Final report
 
 Your report goes to the agent that delegated to you, not to the owner. State:

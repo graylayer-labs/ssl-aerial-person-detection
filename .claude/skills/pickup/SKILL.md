@@ -37,5 +37,8 @@ conversations.
 
 ## Rules
 
+- Trust the issue comments and `git log` over anything you recall, including
+  a summary of an earlier part of this conversation. Do not redo work whose
+  commits already exist.
 - Finish or hand off in-progress work before starting something new.
 - If the board and the repo disagree, say so. Do not pick one silently.

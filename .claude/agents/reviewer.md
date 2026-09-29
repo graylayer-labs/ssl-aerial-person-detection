@@ -18,7 +18,11 @@ You do not edit files. You report findings.
 
 **Correctness**
 - Does the change meet each acceptance criterion in the issue?
-- Do tests and lint pass? Run them.
+- Do tests and lint pass? Run them. Do not rely on the implementer's report.
+- Does the diff match what the implementer said it changed?
+- Do the tests compute their expected values independently? A test that
+  derives the expected answer the same way the code does proves nothing. This
+  matters most for metric tests.
 
 **ML validity.** These are the errors that invalidate results without failing
 a test.
