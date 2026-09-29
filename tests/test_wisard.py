@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import pytest
-
 from aerial_search.data.wisard import load_boxes, load_pairs, prepare_manifests
 
 

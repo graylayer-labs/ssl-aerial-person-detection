@@ -52,7 +52,9 @@ def _load_all_pairs(root: Path) -> list[ImagePair]:
     for cid, (rgb_dir, thermal_dir) in _group_collections(root).items():
         rgb_images = sorted(rgb_dir.glob("*.jpg")) + sorted(rgb_dir.glob("*.jpeg"))
         rgb_images = sorted(set(rgb_images))
-        thermal_images = sorted(thermal_dir.glob("*.jpg")) + sorted(thermal_dir.glob("*.jpeg"))
+        thermal_images = (
+            sorted(thermal_dir.glob("*.jpg")) + sorted(thermal_dir.glob("*.jpeg"))
+        )
         thermal_images = sorted(set(thermal_images))
 
         # Build frame-index lookups
@@ -189,7 +191,9 @@ def _pair_collection(
     """
     rgb_images = sorted(rgb_dir.glob("*.jpg")) + sorted(rgb_dir.glob("*.jpeg"))
     rgb_images = sorted(set(rgb_images))
-    thermal_images = sorted(thermal_dir.glob("*.jpg")) + sorted(thermal_dir.glob("*.jpeg"))
+    thermal_images = (
+        sorted(thermal_dir.glob("*.jpg")) + sorted(thermal_dir.glob("*.jpeg"))
+    )
     thermal_images = sorted(set(thermal_images))
 
     if not rgb_images or not thermal_images:
@@ -306,7 +310,10 @@ def prepare_manifests(
                 "rgb_image": str(pair.rgb_image.relative_to(source)),
                 "thermal_image": str(pair.thermal_image.relative_to(source)),
             }) + "\n")
-    print(f"✓ Wrote {len(all_pairs_unlabeled):,} pairs to all_pairs.jsonl (SSL dataset)")
+    print(
+        f"✓ Wrote {len(all_pairs_unlabeled):,} pairs to all_pairs.jsonl "
+        "(SSL dataset)"
+    )
 
     # Second: write labeled pairs only for detection
     print("Loading labeled pairs (with annotations)...")
