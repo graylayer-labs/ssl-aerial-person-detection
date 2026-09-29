@@ -37,16 +37,16 @@ def repo(tmp_path: Path) -> Path:
     return path
 
 
-def run(repo: Path, **kwargs):
-    defaults = dict(
-        name="exp",
-        config={"epochs": 2, "path": Path("x")},
-        seed=7,
+def run(repo: Path, name: str = "exp", scratch: bool = False) -> Path:
+    return start_run(
+        name,
+        {"epochs": 2, "path": Path("x")},
+        7,
         device="cpu",
+        scratch=scratch,
         argv=["aerial-search", "train-ssl"],
         repo=repo,
     )
-    return start_run(**{**defaults, **kwargs})
 
 
 def test_clean_head_equal_to_origin_main_is_allowed(repo: Path) -> None:
