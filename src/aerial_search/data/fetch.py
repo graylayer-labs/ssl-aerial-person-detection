@@ -136,10 +136,7 @@ def _validate_archive(source: DatasetSource, archive_path: Path) -> None:
                 f"Unexpected archive size for {source.name}: "
                 f"expected {source.expected_bytes:,}, got {actual_bytes:,}"
             )
-    elif (
-        source.minimum_bytes is not None
-        and actual_bytes < source.minimum_bytes
-    ):
+    elif source.minimum_bytes is not None and actual_bytes < source.minimum_bytes:
         raise ValueError(
             f"Archive size for {source.name} below minimum: "
             f"expected >= {source.minimum_bytes:,}, got {actual_bytes:,}"

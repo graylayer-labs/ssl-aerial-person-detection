@@ -47,7 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
     detect.add_argument(
         "--manifests", type=Path, default=Path("data/manifests/wisard-sample")
     )
-    detect.add_argument("--output", type=Path, default=Path("checkpoints/detection-sample"))
+    detect.add_argument(
+        "--output", type=Path, default=Path("checkpoints/detection-sample")
+    )
     detect.add_argument("--epochs", type=int, default=5)
     detect.add_argument("--ssl-checkpoint", type=Path)
 
