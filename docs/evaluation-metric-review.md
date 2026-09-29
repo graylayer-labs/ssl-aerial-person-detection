@@ -55,9 +55,9 @@ Solving IoU >= t for s gives the sizes where the claim holds:
   A 2-pixel error passes 0.25 on people 6 pixels or larger; a 3-pixel error
   on people 9 pixels or larger.
 
-So at the sizes in this data, an error of two or three pixels, which still
-puts a searcher's eyes on the right spot, is both a miss and a false alarm
-at 0.5. At 0.25 a detection must still overlap the person substantially: the
+So an error of two pixels on a person 10 pixels or smaller, or three pixels
+on a person 16 pixels or smaller, still puts a searcher's eyes on the right
+spot, and is both a miss and a false alarm at 0.5. At 0.25 a detection must still overlap the person substantially: the
 8 x 8 row with a 3-pixel shift fails it.
 
 The NWD paper makes the same point with a 1-pixel and a 4-pixel diagonal
@@ -94,8 +94,10 @@ Definition, as implemented:
   no detections (recall 0, FPPI 0) is always allowed.
 
 Detections with equal scores enter at one cutoff, because no threshold can
-keep one and drop the other. Hits and false alarms come from the same
-pycocotools matching that produces AP.
+keep one and drop the other. For the overall figure and the breakdowns by
+modality and flight, hits and false alarms come from the same pycocotools
+matching that produces AP. Per size they come from two matchings, described
+next.
 
 **Per size, false alarms of every size count.** In a size bucket, hits are
 the bucket's people found, but false alarms are all false alarms in the group
@@ -149,6 +151,10 @@ float32 sigmoid returns exactly 1.0 for any logit above about 17.
   enter first. That is the order that gives the lower AP. Stock pycocotools
   orders them by image, then by input order, so it can give a higher AP.
 - **Recall at FPPI** treats equal scores as one cutoff (above).
+- In a size bucket, `n_predictions` and `n_predictions_tied` count detections
+  by the size of the predicted box, while the bucket's AP is decided by the
+  size of the person matched. The counts and the AP therefore do not describe
+  exactly the same detections.
 - `n_predictions_tied` reports how many detections share a score, so a reader
   can see when ties could matter.
 

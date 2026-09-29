@@ -330,6 +330,41 @@ def test_tied_hit_and_false_alarm_across_images_count_the_false_alarm_first() ->
         assert m.n_predictions_tied == 2
 
 
+def test_equal_overlap_with_two_people_does_not_depend_on_their_order() -> None:
+    # People P1 = (0,0,10,10) and P2 = (6,0,16,10), each 10 x 10.
+    # D1 = (3,0,13,10) at 0.9 overlaps each by 7 x 10 = 70; union 130; IoU 0.54.
+    # D2 = (8,0,18,10) at 0.8: with P1 overlap 20, union 180, IoU 0.11 (a miss);
+    #   with P2 overlap 80, union 120, IoU 0.67.
+    # People are matched in coordinate order, and an equal overlap goes to the
+    # later one, so D1 takes P2. D2 then has only P1 left and is a false alarm.
+    # One of two people found with no false alarm ranked above: precision 1
+    # up to recall 0.5, so AP = 51/101. Recall is 0.5 at every budget.
+    p1, p2 = (0.0, 0.0, 10.0, 10.0), (6.0, 0.0, 16.0, 10.0)
+    predictions = [
+        Prediction("a", [(3.0, 0.0, 13.0, 10.0), (8.0, 0.0, 18.0, 10.0)], [0.9, 0.8])
+    ]
+    for people in ([p1, p2], [p2, p1]):
+        report = evaluate_detections(
+            [GroundTruth("a", people, "rgb", "f1")], predictions
+        )
+        assert report.overall.ap_iou25 == pytest.approx(51 / 101)
+        assert report.overall.recall_at_fppi == {0.01: 0.5, 0.1: 0.5, 1.0: 0.5}
+
+
+def test_tied_count_in_a_size_bucket_covers_only_that_bucket() -> None:
+    # A 10 x 10 detection (bucket "tiny") and a 40 x 40 detection (bucket
+    # "medium_plus") share the score 0.7. Overall, both are tied. Within each
+    # bucket there is one detection, which has nothing to tie with.
+    big = (100.0, 100.0, 140.0, 140.0)
+    report = evaluate_detections(
+        [GroundTruth("a", [A, big], "rgb", "f1")],
+        [Prediction("a", [A, big], [0.7, 0.7])],
+    )
+    assert report.overall.n_predictions_tied == 2
+    assert report.by_size["tiny"].n_predictions_tied == 0
+    assert report.by_size["medium_plus"].n_predictions_tied == 0
+
+
 def test_results_do_not_depend_on_input_order() -> None:
     p, q = (0.0, 0.0, 10.0, 10.0), (8.0, 0.0, 18.0, 10.0)
     near = (3.0, 0.0, 13.0, 10.0)
