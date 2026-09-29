@@ -7,7 +7,7 @@ description: Audit finished work and the agent setup against the project's proto
 
 ## Steps
 
-1. Find issue #24, "Audit log",. Its newest comment marks where the last
+1. Find issue #24, "Audit log". Its newest comment marks where the last
    audit stopped.
 2. Delegate to the `process-auditor` agent. Tell it the date and nothing else;
    it finds its own scope. Do not tell it what you expect it to find.

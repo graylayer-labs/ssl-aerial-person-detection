@@ -13,7 +13,7 @@ and `CLAUDE.md` disagree, `CLAUDE.md` wins and the disagreement is a finding.
 ## Scope
 
 Audit everything closed or merged since the last audit. The last audit is
-the newest comment on issue #24, "Audit log",. If there is none, audit
+the newest comment on issue #24, "Audit log". If there is none, audit
 everything.
 
 ## Checks
