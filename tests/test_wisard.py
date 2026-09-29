@@ -5,7 +5,7 @@ import pytest
 from aerial_search.data.wisard import load_boxes, load_pairs, prepare_manifests
 
 
-def test_loads_pairs_in_capture_order(tmp_path: Path) -> None:
+def test_pairs_frames_by_index_not_position(tmp_path: Path) -> None:
     rgb = tmp_path / "flight_VIS_0001"
     thermal = tmp_path / "flight_IR_0002"
     rgb.mkdir()
@@ -17,9 +17,11 @@ def test_loads_pairs_in_capture_order(tmp_path: Path) -> None:
 
     pairs = load_pairs(tmp_path)
 
-    assert len(pairs) == 2
-    assert pairs[0].rgb_image.name.endswith("00000000.jpeg")
-    assert pairs[0].thermal_image.name.endswith("00000001.jpeg")
+    # RGB has frames {0, 1}, thermal has {1, 2}. Position-based pairing would
+    # give two pairs (0-1, 1-2); index-based pairing gives only frame 1.
+    assert len(pairs) == 1
+    assert pairs[0].rgb_image.name.endswith("_00001.jpeg")
+    assert pairs[0].thermal_image.name.endswith("_00001.jpeg")
 
 
 def test_skips_missing_annotation(tmp_path: Path) -> None:
@@ -29,7 +31,7 @@ def test_skips_missing_annotation(tmp_path: Path) -> None:
     rgb.mkdir()
     thermal.mkdir()
     _sample(rgb, 0)  # Has annotation
-    (thermal / "flight_IR_0002_00000001.jpeg").touch()  # No annotation
+    (thermal / "flight_IR_0002_00000.jpeg").touch()  # Same frame, no annotation
 
     # Thermal image without annotation is skipped; result is empty list
     pairs = load_pairs(tmp_path)
@@ -82,6 +84,6 @@ def test_prepares_collection_level_manifests(tmp_path: Path) -> None:
 
 
 def _sample(directory: Path, number: int) -> None:
-    stem = f"{directory.name}_{number:08d}"
+    stem = f"{directory.name}_{number:05d}"
     (directory / f"{stem}.jpeg").touch()
     (directory / f"{stem}.txt").touch()
