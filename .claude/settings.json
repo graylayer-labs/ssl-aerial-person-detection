@@ -1,17 +1,52 @@
 {
   "permissions": {
     "allow": [
-      "Bash(uv sync:*)",
-      "Bash(uv run pytest:*)",
-      "Bash(uv run ruff:*)",
-      "Bash(uv run ty:*)",
-      "Bash(gh issue list:*)",
-      "Bash(gh issue view:*)",
-      "Bash(gh pr list:*)",
-      "Bash(gh pr view:*)",
-      "Bash(gh pr diff:*)",
-      "Bash(gh project list:*)",
-      "Bash(gh project item-list:*)"
+      "Bash(uv sync *)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff *)",
+      "Bash(uv run ty *)",
+      "Bash(gh issue *)",
+      "Bash(gh label *)",
+      "Bash(gh project *)",
+      "Bash(gh run *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr diff *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr edit *)",
+      "Bash(gh pr comment *)",
+      "Bash(gh pr ready *)",
+      "Bash(git push origin *)",
+      "Bash(git push -u origin *)"
+    ],
+    "ask": [
+      "Bash(gh pr merge *)",
+      "Bash(gh repo edit *)",
+      "Bash(gh repo delete *)",
+      "Bash(gh release *)",
+      "Bash(git push origin --delete *)",
+      "Bash(git reset --hard *)",
+      "Bash(aws *)"
+    ],
+    "deny": [
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f)",
+      "Bash(rm -rf data*)",
+      "Bash(rm -rf ./data*)",
+      "Bash(aws s3 rm *)",
+      "Bash(aws s3 rb *)"
+    ]
+  },
+  "autoMode": {
+    "soft_deny": [
+      "$defaults",
+      "Deleting or overwriting anything under data/ or in the project's S3 bucket",
+      "Starting any cloud compute or paid service, including SageMaker jobs, endpoints, and notebooks",
+      "Starting a local training or processing run expected to take more than one hour",
+      "Installing third-party Claude plugins, skills, hooks, or MCP servers"
     ]
   }
 }
