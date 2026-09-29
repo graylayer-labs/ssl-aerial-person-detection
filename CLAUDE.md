@@ -60,7 +60,7 @@ child.
 ## The board
 
 - Board: https://github.com/orgs/graylayer-labs/projects/1 (project number 1,
-  owner `graylayer-labs`). It is private.
+  owner `graylayer-labs`). It is public.
 - Issues: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues
 - Status lives on the board only: Todo, In Progress, Done.
 - **Epics** are parent issues labelled `epic`, one per milestone. Tasks are
@@ -84,6 +84,8 @@ gh api -X POST repos/graylayer-labs/ssl-aerial-person-detection/issues/<parent>/
 
 ```bash
 gh project item-list 1 --owner graylayer-labs --format json --limit 100   # status
+# to read one field, add --jq to this command. Piping its JSON into a
+# separate jq can fail on control characters in issue text.
 
 # read a task in full. `gh issue view <n> --comments` can omit the body.
 gh issue view <n> --json title,body,labels,comments --jq \

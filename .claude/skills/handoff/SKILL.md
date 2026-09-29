@@ -34,8 +34,9 @@ conversation.
 **Done so far**
 - ...
 
-**Results**
-- Numbers, with the config and command that produced them.
+**Evidence**
+- Commands run and their output, pasted as it appeared. For a result, the
+  numbers with the config and seed that produced them.
 
 **Decisions and why**
 - ...
