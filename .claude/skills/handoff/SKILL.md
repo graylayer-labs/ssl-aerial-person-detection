@@ -50,8 +50,19 @@ conversation.
 - ...
 ```
 
+## When the issue is finished
+
+Use the same template with **State: done**, and add:
+
+- a link to the merged PR
+- what was found but left alone, and the issue that now tracks it
+
+Then add one line to the parent epic's "Decisions so far" list: the date, the
+outcome in a sentence, and a link to this issue.
+
 ## Rules
 
+- Write for an agent that has never seen this project.
 - Write whole sentences. Do not use shorthand or labels coined during the
   session.
 - Include failures. A dead end that is not written down gets repeated.

@@ -24,15 +24,18 @@ conversations.
    gh project item-list <number> --owner graylayer-labs --format json
    gh pr list --state open
    ```
-4. For each item that is **In progress**, read the issue and its comments with
+4. Read the current epic (the open issue labelled `epic` that has
+   sub-issues). Its "Decisions so far" list is the short history of the
+   milestone.
+5. For each item that is **In progress**, read the issue and its comments with
    `gh issue view <number> --comments`. The last handoff comment says where
    the work stopped.
-5. Report to the owner, briefly:
+6. Report to the owner, briefly:
    - What is in progress and where it stopped.
    - What is ready to start next, in board order.
    - Anything that looks wrong, such as a branch with no issue or an issue in
      progress with no branch.
-6. Pick the next issue and say which one and why. Start on it unless it is
+7. Pick the next issue and say which one and why. Start on it unless it is
    labelled `needs-owner` or falls under "Ask the owner first" in
    `CLAUDE.md`. Delegate to the agent named by its `agent:` label.
 

@@ -77,12 +77,14 @@ milestone then at a later one. Older methods are welcome as baselines.
 
 - Prototype on the laptop (Apple M4, 24 GB). Laptop runs must be short; long
   multi-hour training on the laptop is out of scope.
-- Cloud (SageMaker) is unlocked in stages, each stage justified by a working
+- Free and near-free cloud is fine to use as needed: S3 storage and free-tier
+  instances.
+- Runs too long for the laptop go to a paid cloud instance. Larger compute
+  (SageMaker) is unlocked in stages, each stage justified by a working
   prototype. Cost is a personal expense and is treated as one.
-
-- **Gate.** No cloud spend without the owner's approval. A request states what
+- **Gate.** Paid compute needs the owner's approval. A request states what
   the laptop prototype showed, what the cloud run is expected to add, and an
-  estimated cost. The owner sets the ceiling for each stage when approving it.
+  estimated cost. The owner sets the ceiling when approving it.
 
 ## Non-goals
 

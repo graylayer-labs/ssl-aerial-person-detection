@@ -2,6 +2,9 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
+- 2026-09-29 · chose to pin the frame-number parsing bug as a strict expected failure over fixing it in the lint PR · changing pairing needs the verification in #2; the pinned test keeps the bug visible while CI is green.
+- 2026-09-29 · chose CI-gated auto-merge with no required human review over review-gated merges · the owner does not review every PR; agent review covers logic changes and CI covers the rest.
+- 2026-09-29 · chose parent issues labelled `epic` as the roadmap over a roadmap document or board date fields · one place to look, no extra upkeep.
 - 2026-09-29 · chose our own skills and agents over installing the Superpowers or Matt Pocock skill bundles · both overlap with the board-based setup; Superpowers injects instructions into every session and writes plan files into the repo. Ideas were borrowed, nothing installed.
 - 2026-09-29 · chose a strict CI (`ci.yml`) over the org template on branch `chore/org-standards-sync` · the template swallows test and type-check failures and requires labels this repo does not use.
 - 2026-09-29 · chose to delete the old planning docs over archiving them · git history keeps them, and an archive folder would mislead future agents.

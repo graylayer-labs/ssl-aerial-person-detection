@@ -18,7 +18,7 @@ Agent sessions end and context is lost. The project board is the memory.
 1. **Start** with `/pickup`. It reads the board and open issues and tells you
    what is in progress and what is next. Do not start work from memory of a
    previous conversation.
-2. **Work** on one issue at a time: one issue, one branch, one draft PR.
+2. **Work** on one issue at a time: one issue, one branch, one PR.
 3. **Record as you go.** Decisions, results, and dead ends go in a comment on
    the issue, not only in the conversation.
 4. **End** with `/handoff`, even if the task is unfinished. The next agent
@@ -26,13 +26,40 @@ Agent sessions end and context is lost. The project board is the memory.
 
 If there is no issue for the work, create one from the task template.
 
+## Leave a trail
+
+Assume the next reader is an agent that has never seen this project. Every
+finished issue gets a closing comment, written with `/handoff`, that states:
+
+- what was done, with links to the PR and commits
+- the evidence: commands run and their output, or the numbers and the config
+  that produced them
+- decisions made and why
+- what was tried and did not work
+- what was found but left alone, and the issue that now tracks it
+
+Then add one line to the parent issue's "Decisions so far" list, linking to
+the closed issue. The parent stays a short index; the detail stays in the
+child.
+
 ## The board
 
 - Board: https://github.com/orgs/graylayer-labs/projects/1 (project number 1,
   owner `graylayer-labs`). It is private.
 - Issues: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues
 - Status lives on the board only: Todo, In Progress, Done.
-- Milestones group issues. Only the current milestone is planned in detail.
+- **Epics** are parent issues labelled `epic`, one per milestone. Tasks are
+  their sub-issues. The epics in order are the roadmap; there is no separate
+  roadmap document.
+- Only the current epic has sub-issues. Later epics hold a short description
+  and get their tasks when the one before them closes.
+
+```bash
+# attach issue <child> to epic <parent> (needs the child's id, not its number)
+CHILD_ID=$(gh api repos/graylayer-labs/ssl-aerial-person-detection/issues/<child> --jq .id)
+gh api -X POST repos/graylayer-labs/ssl-aerial-person-detection/issues/<parent>/sub_issues \
+  -F sub_issue_id=$CHILD_ID
+```
 
 ```bash
 gh project item-list 1 --owner graylayer-labs --format json   # read status
@@ -50,16 +77,30 @@ and `status:` labels come from the org template and are not used here.
 
 ## Do freely
 
-- Create branches, commit, push branches, open and update draft PRs.
+- Create branches, commit, push branches, open and update PRs.
 - Create, edit, comment on, and close issues. Update the board.
-- Merge a PR into `main` once CI is green and the `reviewer` agent found
-  nothing blocking. Squash merge.
+- Merge PRs. `main` is protected: nothing is pushed to it directly, and a PR
+  merges only when the `checks` CI job passes. No human review is required.
+  Set a PR to merge itself with `gh pr merge <n> --auto --squash`.
 - Delete superseded code and docs. Git history is the archive.
 - Short laptop runs.
+- Free or near-free AWS: S3 storage for project data, and free-tier
+  instances.
+
+### Review before merge
+
+CI proves the code runs. It does not prove a result is valid.
+
+- Changes to logic under `src/`, to experiments, or to metrics: the
+  `reviewer` agent checks the branch before auto-merge is set.
+- Docs, config, and formatting-only changes: the main session reads the diff
+  itself.
+- Say in the PR which of the two happened.
 
 ## Ask the owner first
 
-- Spending money: any cloud compute or paid service.
+- Spending real money: paid cloud instances, SageMaker, or any paid service.
+  Give the reason a laptop run will not do and a cost estimate.
 - Deleting data under `data/` or in S3, or anything else that cannot be
   recovered.
 - Force-pushing, rewriting history, or deleting a remote branch that has
@@ -68,8 +109,10 @@ and `status:` labels come from the org template and are not used here.
 - Anything public beyond the repo itself: blog posts, releases, repo
   visibility or settings, making the board public.
 - Installing third-party plugins, skills, hooks, or MCP servers.
-- A laptop run expected to take over an hour.
-- Merging a PR that the reviewer flagged or whose CI is red.
+- A laptop run expected to take over an hour. Prefer a cloud instance for
+  long runs, which is a spending request.
+- Merging a PR that the reviewer flagged.
+- Changing branch protection or other repository settings.
 
 `.claude/settings.json` backs these up with permission rules. The rules are a
 safety net, not the definition; this list is.
@@ -159,7 +202,6 @@ rather than doing routine work in an expensive session.
 
 - `/tidy` runs an audit and cleans up on a branch. Run it at the end of every
   milestone and whenever the repo feels out of step with the docs.
-- The `reviewer` agent checks every PR before it merges.
 
 ## Reusable tooling
 
