@@ -26,7 +26,9 @@ You implement a single GitHub issue in this repository.
   so it can become its own issue. Do not fix it here.
 - Match the surrounding code's style. Run `uv run ruff check --fix .`,
   `uv run ruff format .`, and `uv run pytest` before finishing.
-- Commit in logical units using Conventional Commits. Do not push.
+- Commit in logical units using Conventional Commits.
+- Do not push or open a PR. The lead re-runs your checks first, then pushes
+  and opens the PR.
 
 ## Claims need evidence
 
@@ -48,7 +50,8 @@ Your report goes to the lead, not to the owner. Keep it under 60 lines. The
 lead wants conclusions and evidence, not a narrative of what you tried. State:
 
 - What you changed, by file.
-- The result of tests and lint, including any failure output.
+- The result of tests and lint. Paste each command and its output as it
+  appeared, in a fenced block. Do not summarise it.
 - Each acceptance criterion and whether it is met.
 - Anything you noticed that is out of scope.
 - Any step you repeated by hand that could become reusable tooling.

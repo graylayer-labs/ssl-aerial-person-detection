@@ -23,6 +23,11 @@ to the owner. It does not do routine work itself.
   issue.
 - **Verify before trusting.** Re-run the checks an agent reports, and test
   its most important claim yourself.
+- **Push after verifying.** Agents commit on their branch and stop. The lead
+  pushes and opens the PR once it has re-run their checks.
+- **Say who did the work.** The `agent:` label records the plan. If the lead
+  does an issue itself, or a different model is used, the handoff says so
+  and why.
 - **Write the brief as if to a stranger.** An agent knows only what its
   prompt and the issue tell it.
 
@@ -152,6 +157,12 @@ CI proves the code runs. It does not prove a result is valid.
 
 `.claude/settings.json` backs these up with permission rules. The rules are a
 safety net, not the definition; this list is.
+
+### Record every approval
+
+When the owner approves something on this list, quote their words and the
+date in a comment on the issue, before acting. An approval that lives only in
+a conversation is lost when the session ends.
 
 ### When a task needs the owner partway through
 

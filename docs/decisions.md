@@ -2,6 +2,8 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
+- 2026-09-29 · chose a public project board over a private one · the repo and its issues are already public, so the board exposes nothing new, and it shows visitors how the project is run. Approved by the owner; see #22.
+- 2026-09-29 · chose to fold `docs/PROBLEM.md` into the README over keeping it · the problem statement then has one home. See #6.
 - 2026-09-29 · chose to rely on GitHub signing each squash merge over the "require signed commits" rule · the rule was tried and blocked every PR, because it also demands signatures on the branch commits, which needs a local signing key that agents would hold. Commits on `main` are verified either way.
 - 2026-09-29 · chose a separate `process-auditor` over widening `repo-janitor` · one checks how work was done and may fix records; the other checks the repo's contents and changes nothing.
 - 2026-09-29 · chose to quote results only from runs on a clean commit on `main` over allowing branch runs · the owner's rule against "works on my machine"; enforced by the module in #23.
