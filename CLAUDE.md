@@ -228,12 +228,30 @@ Keep it short, and keep one home for each fact.
 | Why the project exists | `INTENT.md` |
 | How to work here | this file |
 | What is planned or in progress | the board |
+| What changed that a reader should know | `CHANGELOG.md`, key items only |
 | Why a technical choice was made | `docs/decisions.md`, one line each |
 | The evidence behind a decision, when it is long | `docs/<topic>-review.md` |
 | What a milestone found | `docs/milestones/<name>.md`, created with the first write-up |
 
 Write a decision down when a future agent would otherwise have to guess or
 re-derive it. Format: `YYYY-MM-DD · chose X over Y · reason`.
+
+### Changelog
+
+`CHANGELOG.md` is for a reader who wants the project's history in two
+minutes. Add an entry in the same PR as the change when the change is one of
+these:
+
+- a finding that changes what can be trusted, such as a bug in the data
+- a result, positive or negative
+- a change of direction or method
+- a new capability, dataset, or model
+- a rule that changes how work is done or merged
+- something tried and dropped
+
+Leave out routine fixes, refactors, and wording changes. Group entries by
+epic and date, newest first. Each entry is one or two sentences with a link
+to its issue or PR. No version numbers.
 
 ## Experiments
 
