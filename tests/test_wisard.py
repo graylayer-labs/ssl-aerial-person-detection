@@ -1,6 +1,13 @@
 from pathlib import Path
 
-from aerial_search.data.wisard import load_boxes, load_pairs, prepare_manifests
+import pytest
+
+from aerial_search.data.wisard import (
+    _extract_frame_index,
+    load_boxes,
+    load_pairs,
+    prepare_manifests,
+)
 
 
 def test_pairs_frames_by_index_not_position(tmp_path: Path) -> None:
@@ -79,6 +86,22 @@ def test_prepares_collection_level_manifests(tmp_path: Path) -> None:
     # Verify different seed produces (possibly) different split
     counts3 = prepare_manifests(source, tmp_path / "processed3", seed=42)
     assert sum(counts3.values()) == 10  # but still valid
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Frame numbers that are not 5 or 6 digits are not parsed. See issue #2.",
+)
+@pytest.mark.parametrize(
+    ("name", "frame"),
+    [
+        # Both names are taken from the WiSARD dataset.
+        ("210327_Airfield_FLIR_VIS_4_00000494.jpg", 494),
+        ("200402_Karen_Inspire_VIS_695.jpeg", 695),
+    ],
+)
+def test_parses_frame_numbers_of_any_length(name: str, frame: int) -> None:
+    assert _extract_frame_index(Path(name)) == frame
 
 
 def _sample(directory: Path, number: int) -> None:
