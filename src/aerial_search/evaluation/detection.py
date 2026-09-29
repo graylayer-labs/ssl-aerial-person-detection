@@ -12,13 +12,17 @@ Matching (pycocotools, computed per image and per IoU threshold)
     Detections are taken in descending score order. Each takes the unmatched
     person with the highest IoU, provided that IoU is at least the threshold
     (equal counts). A person can be matched once, so a second detection of the
-    same person is a false alarm. Equal IoU goes to the person listed later.
+    same person is a false alarm. Equal IoU goes to the person that comes
+    later in box coordinate order.
 
-Ties in score
-    Average precision follows pycocotools: a stable sort, so equal scores keep
-    image order, then the order detections were given in. Recall at false
-    alarms per image treats equal scores as one operating point, because no
-    score threshold can separate them.
+Ties in score (no result depends on the order of the input)
+    Scores are held as float64. Within an image, detections with equal scores
+    are matched in box coordinate order (x1, y1, x2, y2), and people are listed
+    in the same order. This is fixed but neither optimistic nor pessimistic.
+    On the precision-recall curve, false alarms with the same score as hits
+    enter first, the order that gives the lower AP. Recall at false alarms per
+    image treats equal scores as one cutoff, because no threshold can separate
+    them.
 """
 
 from __future__ import annotations
@@ -128,6 +132,7 @@ class DetectionMetrics:
     n_images_with_people: int
     n_ground_truth: int
     n_predictions: int
+    n_predictions_tied: int  # detections sharing their score with another
     ap_iou25: float
     ap_iou50: float
     ap_coco: float
@@ -139,6 +144,7 @@ class DetectionMetrics:
             "n_images_with_people": self.n_images_with_people,
             "n_ground_truth": self.n_ground_truth,
             "n_predictions": self.n_predictions,
+            "n_predictions_tied": self.n_predictions_tied,
             "ap_iou25": _finite_or_none(self.ap_iou25),
             "ap_iou50": _finite_or_none(self.ap_iou50),
             "ap_coco": _finite_or_none(self.ap_coco),
@@ -191,6 +197,9 @@ def _config() -> dict[str, Any]:
         },
         "box_format": "x1,y1,x2,y2 pixels, top-left origin, far edge exclusive",
         "ap_interpolation": "COCO 101-point, recall levels k/100",
+        "score_ties": "matched in box order within an image; false alarms "
+        "before hits on the AP curve; one cutoff for recall at FPPI",
+        "size_recall_false_alarms": "all detections, whatever their size",
         "pycocotools": version("pycocotools"),
     }
 
@@ -261,7 +270,6 @@ class _Scorer:
         p.imgIds = [self.coco_ids[i] for i in image_ids]
         p.catIds = [_PERSON]
         p.iouThrs = np.array(IOU_THRESHOLDS)
-        p.recThrs = _RECALL_LEVELS
         p.maxDets = [self.max_dets]
         # pycocotools keeps areas in [low, high] inclusive; stepping the upper
         # edge down one ulp makes each bucket half-open, [low, high).
@@ -270,31 +278,53 @@ class _Scorer:
             for low, high in buckets.values()
         ]
         p.areaRngLbl = list(buckets)
+        # Only the per-image matching comes from pycocotools. Its accumulate()
+        # breaks score ties by input order, so AP is computed here instead.
         with redirect_stdout(io.StringIO()):
             ev.evaluate()
-            ev.accumulate()
+
+        primary = IOU_THRESHOLDS.index(PRIMARY_IOU)
+        # Recall at FPPI counts every false alarm, whatever its size, so false
+        # alarms always come from the all-sizes matching.
+        all_scores, all_hits, _ = _matches(ev, 0, primary)
+        false_alarm_scores = all_scores[~all_hits]
 
         results = {}
         for a, (name, (low, high)) in enumerate(buckets.items()):
-            ap = [_average_precision(ev, t, a) for t in range(len(IOU_THRESHOLDS))]
-            gt_counts = [_count_in(self.truths[i].boxes, low, high) for i in image_ids]
+            ap = []
+            for t in range(len(IOU_THRESHOLDS)):
+                scores, hits, n_people = _matches(ev, a, t)
+                ap.append(_average_precision(scores, hits, n_people))
+                if t == primary:
+                    recall = _recall_at_fppi(
+                        scores[hits], false_alarm_scores, n_people, len(image_ids)
+                    )
+            gt_counts = [
+                int(_in_bucket(self.truths[i].boxes, low, high).sum())
+                for i in image_ids
+            ]
+            pred_scores = np.concatenate(
+                [[]]
+                + [
+                    np.asarray(self.preds[i].scores)[
+                        _in_bucket(self.preds[i].boxes, low, high)
+                    ]
+                    for i in image_ids
+                    if i in self.preds
+                ]
+            )
             results[name] = DetectionMetrics(
                 n_images=len(image_ids),
                 n_images_with_people=sum(c > 0 for c in gt_counts),
                 n_ground_truth=sum(gt_counts),
-                n_predictions=sum(
-                    _count_in(self.preds[i].boxes, low, high)
-                    for i in image_ids
-                    if i in self.preds
-                ),
-                ap_iou25=ap[IOU_THRESHOLDS.index(PRIMARY_IOU)],
+                n_predictions=len(pred_scores),
+                n_predictions_tied=_count_tied(pred_scores),
+                ap_iou25=ap[primary],
                 ap_iou50=ap[IOU_THRESHOLDS.index(0.5)],
                 ap_coco=float(
                     np.mean([ap[IOU_THRESHOLDS.index(t)] for t in COCO_IOUS])
                 ),
-                recall_at_fppi=_recall_at_fppi(
-                    ev, IOU_THRESHOLDS.index(PRIMARY_IOU), a, len(image_ids)
-                ),
+                recall_at_fppi=recall,
             )
         return results
 
@@ -302,8 +332,20 @@ class _Scorer:
 def _annotations(
     boxes: ArrayLike, image: int, scores: ArrayLike | None = None
 ) -> list[dict[str, Any]]:
+    """COCO annotations in a fixed order that does not come from the input.
+
+    pycocotools matches detections in a stable sort by score and breaks equal
+    IoU by list position, so sorting here by (-score, x1, y1, x2, y2) makes
+    the matching independent of the order boxes were given in.
+    """
+    b = np.asarray(boxes)
+    keys = [b[:, 3], b[:, 2], b[:, 1], b[:, 0]]
+    if scores is not None:
+        keys.append(-np.asarray(scores))
+    order = np.lexsort(keys)
     anns = []
-    for k, (x1, y1, x2, y2) in enumerate(np.asarray(boxes).tolist()):
+    for k in order.tolist():
+        x1, y1, x2, y2 = b[k].tolist()
         w, h = x2 - x1, y2 - y1
         ann = {
             "image_id": image,
@@ -330,36 +372,63 @@ def _coco(images: list[dict], annotations: list[dict]) -> COCO:
     return coco
 
 
-def _count_in(boxes: ArrayLike, low: float, high: float) -> int:
+def _in_bucket(boxes: ArrayLike, low: float, high: float) -> np.ndarray:
     areas = _areas(boxes)
-    return int(np.count_nonzero((areas >= low**2) & (areas < high**2)))
+    return (areas >= low**2) & (areas < high**2)
 
 
-def _average_precision(ev: COCOeval, t: int, a: int) -> float:
-    precision = np.asarray(ev.eval["precision"])[t, :, 0, a, 0]
-    if (precision < 0).all():  # pycocotools writes -1 when there are no people
-        return math.nan
-    return float(np.mean(precision))
+def _count_tied(scores: np.ndarray) -> int:
+    _, counts = np.unique(scores, return_counts=True)
+    return int(counts[counts > 1].sum())
 
 
-def _recall_at_fppi(ev: COCOeval, t: int, a: int, n_images: int) -> dict[float, float]:
-    """Best recall at each false-alarm budget, from pycocotools' own matches."""
+def _matches(ev: COCOeval, a: int, t: int) -> tuple[np.ndarray, np.ndarray, int]:
+    """Scores and hit flags of the detections counted in area range ``a`` at
+    IoU index ``t``, and the number of people counted, from pycocotools'
+    per-image matching."""
     n = len(ev.params.imgIds)
     per_image = [e for e in ev.evalImgs[a * n : (a + 1) * n] if e is not None]
     n_people = sum(int(np.count_nonzero(e["gtIgnore"] == 0)) for e in per_image)
-    if n_people == 0:
-        return {f: math.nan for f in FPPI_POINTS}
-
     scores = np.concatenate([[], *(e["dtScores"] for e in per_image)])
     hits = np.concatenate([[], *(e["dtMatches"][t] > 0 for e in per_image)])
     ignored = np.concatenate([[], *(e["dtIgnore"][t] for e in per_image)])
     keep = ignored == 0
-    scores, hits = scores[keep], hits[keep].astype(bool)
+    return scores[keep], hits[keep].astype(bool), n_people
 
-    order = np.argsort(-scores, kind="stable")
-    scores, hits = scores[order], hits[order]
-    # Only the last detection of each run of equal scores is a real cutoff.
-    cutoff = np.append(scores[1:] != scores[:-1], True)[: len(scores)]
-    recall = np.append(0.0, np.cumsum(hits)[cutoff] / n_people)
-    fppi = np.append(0.0, np.cumsum(~hits)[cutoff] / n_images)
+
+def _average_precision(scores: np.ndarray, hits: np.ndarray, n_people: int) -> float:
+    """COCO 101-point AP, as pycocotools' accumulate() computes it, except that
+    false alarms tied in score with hits are ranked first."""
+    if n_people == 0:
+        return math.nan
+    if len(scores) == 0:
+        return 0.0
+    hits = hits[np.lexsort((hits, -scores))]  # score descending, then FP first
+    tp = np.cumsum(hits)
+    recall = tp / n_people
+    precision = tp / np.arange(1, len(hits) + 1)
+    envelope = np.maximum.accumulate(precision[::-1])[::-1]
+    first = np.searchsorted(recall, _RECALL_LEVELS, side="left")
+    reached = first < len(recall)
+    at_level = np.where(reached, envelope[np.minimum(first, len(recall) - 1)], 0.0)
+    return float(at_level.mean())
+
+
+def _recall_at_fppi(
+    hit_scores: np.ndarray, false_alarm_scores: np.ndarray, n_people: int, n_images: int
+) -> dict[float, float]:
+    """Best recall at each false-alarm budget, over score cutoffs.
+
+    At a cutoff c, recall counts hits scoring >= c and FPPI counts false alarms
+    scoring >= c, so equal scores always enter together.
+    """
+    if n_people == 0:
+        return {f: math.nan for f in FPPI_POINTS}
+    cutoffs = np.unique(np.concatenate([hit_scores, false_alarm_scores]))
+    hits = len(hit_scores) - np.searchsorted(np.sort(hit_scores), cutoffs, "left")
+    false_alarms = len(false_alarm_scores) - np.searchsorted(
+        np.sort(false_alarm_scores), cutoffs, "left"
+    )
+    recall = np.append(0.0, hits / n_people)
+    fppi = np.append(0.0, false_alarms / n_images)
     return {f: float(recall[fppi <= f].max()) for f in FPPI_POINTS}

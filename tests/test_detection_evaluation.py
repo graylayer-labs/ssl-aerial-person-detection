@@ -9,12 +9,17 @@ Conventions used in the working below:
   >= r (0 when recall r is never reached).
 - Recall at a false-alarm rate f is the best recall over score cutoffs whose
   false alarms divided by the number of images is at most f.
+- Detections with equal scores: within an image they are matched in box
+  coordinate order (x1, y1, x2, y2); on the precision-recall curve false
+  alarms enter before hits.
 """
 
 import json
 import math
+import random
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from aerial_search.evaluation.detection import (
@@ -44,6 +49,7 @@ def test_perfect_predictions_score_one() -> None:
     # No false alarms, so every budget reaches full recall.
     assert m.recall_at_fppi == {0.01: 1.0, 0.1: 1.0, 1.0: 1.0}
     assert (m.n_images, m.n_ground_truth, m.n_predictions) == (2, 2, 2)
+    assert m.n_predictions_tied == 0
 
 
 def test_no_predictions_score_zero() -> None:
@@ -234,6 +240,130 @@ def test_tied_scores_form_one_operating_point() -> None:
         m = evaluate_detections([truth("i1", [A])], preds).overall
         # 1 image. The only non-empty cutoff is 0.5 -> (recall 1, FPPI 1).
         assert m.recall_at_fppi == {0.01: 0.0, 0.1: 0.0, 1.0: 1.0}
+
+
+def test_size_bucket_recall_counts_false_alarms_of_every_size() -> None:
+    # Reviewer's case: a 6 x 6 person found at 0.5, a 20 x 20 false alarm
+    # at 0.9. A searcher sees every false alarm, whatever its size.
+    tiny_person = (0.0, 0.0, 6.0, 6.0)
+    big_false_alarm = (100.0, 100.0, 120.0, 120.0)
+    preds = [Prediction("i1", [big_false_alarm, tiny_person], [0.9, 0.5])]
+
+    report = evaluate_detections([truth("i1", [tiny_person])], preds)
+
+    # 1 image. Cutoffs: 0.9 -> (recall 0, FPPI 1); 0.5 -> (1, 1).
+    expected = {0.01: 0.0, 0.1: 0.0, 1.0: 1.0}
+    assert report.overall.recall_at_fppi == expected
+    very_tiny = report.by_size["very_tiny"]
+    assert very_tiny.recall_at_fppi == expected
+    # AP per size keeps the COCO rule: an unmatched detection of another size
+    # is ignored in the bucket, so the bucket's AP is 1.
+    assert very_tiny.ap_iou25 == pytest.approx(1.0)
+
+
+def test_false_alarm_rate_divides_by_all_images() -> None:
+    # One image with a person, nine without. Two false alarms at 0.9 on empty
+    # images, one hit at 0.5.
+    truths = [truth("p", [A])] + [truth(f"e{k}", []) for k in range(9)]
+    preds = [
+        Prediction("p", [A], [0.5]),
+        Prediction("e0", [B], [0.9]),
+        Prediction("e1", [B], [0.9]),
+    ]
+
+    m = evaluate_detections(truths, preds).overall
+
+    # 10 images. Cutoffs: 0.9 -> (recall 0, FPPI 2/10); 0.5 -> (1, 2/10).
+    # Dividing by images with people (1) would give FPPI 2 and recall 0 at 1.
+    assert m.recall_at_fppi == {0.01: 0.0, 0.1: 0.0, 1.0: 1.0}
+
+
+def test_one_detection_can_be_a_hit_in_two_size_buckets() -> None:
+    # A 10 x 10 person with a 6 x 6 person inside, one detection equal to the
+    # larger. IoU with the larger = 1; with the smaller = 36/100 = 0.36.
+    big, small = (0.0, 0.0, 10.0, 10.0), (2.0, 2.0, 8.0, 8.0)
+    preds = [Prediction("i1", [big], [0.9])]
+
+    report = evaluate_detections([truth("i1", [big, small])], preds)
+
+    # Overall the detection takes the larger person: recall 1/2, precision 1.
+    # Levels 0.00..0.50 (51 levels) -> 1. AP = 51/101.
+    assert report.overall.ap_iou25 == pytest.approx(51 / 101)
+    # In each bucket the other person is ignored, so the same detection is
+    # a hit in both (the COCO rule): per-size figures do not add up.
+    assert report.by_size["tiny"].ap_iou25 == pytest.approx(1.0)
+    assert report.by_size["very_tiny"].ap_iou25 == pytest.approx(1.0)
+
+
+def test_tied_detections_in_one_image_match_in_coordinate_order() -> None:
+    # Reviewer's within-image case, in this geometry: people P and Q, two
+    # detections both at 0.7.
+    p, q = (0.0, 0.0, 10.0, 10.0), (8.0, 0.0, 18.0, 10.0)
+    near = (3.0, 0.0, 13.0, 10.0)  # IoU with P = 70/130 = 0.54, Q = 50/150 = 0.33
+    # `p` (x1 = 0) is matched before `near` (x1 = 3), whatever the input
+    # order: `p` takes P, then `near` takes Q. Two hits, no false alarm.
+    # (Taking `near` first would give it P and leave `p` with Q at IoU
+    # 20/180 = 0.11, a false alarm.)
+    for boxes in ([near, p], [p, near]):
+        preds = [Prediction("i1", boxes, [0.7, 0.7])]
+        m = evaluate_detections([truth("i1", [p, q])], preds).overall
+        assert m.ap_iou25 == pytest.approx(1.0)
+        assert m.recall_at_fppi == {0.01: 1.0, 0.1: 1.0, 1.0: 1.0}
+        assert m.n_predictions_tied == 2
+
+
+def test_tied_hit_and_false_alarm_across_images_count_the_false_alarm_first() -> None:
+    # Reviewer's across-image case: a hit on one image and a false alarm on
+    # an empty image, both at score 1.0 (a saturated float32 sigmoid).
+    for order in (["a", "b"], ["b", "a"]):
+        images = {"a": truth("a", [A]), "b": truth("b", [])}
+        preds = [Prediction("a", [A], [1.0]), Prediction("b", [A], [1.0])]
+
+        m = evaluate_detections([images[k] for k in order], preds).overall
+
+        # The lower-scoring order: FP then TP. recall = [0, 1],
+        # precision = [0, 1/2], envelope = [1/2, 1/2]: AP = 0.5.
+        # (Stock pycocotools gives 1.0 when image "a" is listed first.)
+        assert m.ap_iou25 == pytest.approx(0.5)
+        # 2 images, one cutoff at 1.0 -> (recall 1, FPPI 1/2).
+        assert m.recall_at_fppi == {0.01: 0.0, 0.1: 0.0, 1.0: 1.0}
+        assert m.n_predictions_tied == 2
+
+
+def test_results_do_not_depend_on_input_order() -> None:
+    p, q = (0.0, 0.0, 10.0, 10.0), (8.0, 0.0, 18.0, 10.0)
+    near = (3.0, 0.0, 13.0, 10.0)
+    truths = [
+        truth("i1", [p, q, B], modality="rgb", flight="fA"),
+        truth("i2", [A], modality="thermal", flight="fA"),
+        truth("i3", [], modality="rgb", flight="fB"),
+        truth("i4", [(0.0, 0.0, 6.0, 6.0), B], modality="thermal", flight="fB"),
+    ]
+    preds = [
+        Prediction("i1", [near, p, B, (50.0, 50.0, 60.0, 60.0)], [1.0, 1.0, 0.6, 0.6]),
+        Prediction("i2", [A, A], [1.0, 0.6]),
+        Prediction("i3", [A, (30.0, 30.0, 50.0, 50.0)], [1.0, 0.6]),
+        Prediction(
+            "i4", [(1.0, 1.0, 7.0, 7.0), (100.0, 100.0, 120.0, 120.0)], [0.6, 1.0]
+        ),
+    ]
+    baseline = evaluate_detections(truths, preds).to_dict()
+
+    rng = random.Random(0)
+    for _ in range(8):
+        shuffled_truths = []
+        for t in rng.sample(truths, len(truths)):
+            boxes = np.asarray(t.boxes).tolist()
+            shuffled = rng.sample(boxes, len(boxes))
+            shuffled_truths.append(truth(t.image_id, shuffled, t.modality, t.flight))
+        shuffled_preds = []
+        for pr in rng.sample(preds, len(preds)):
+            boxes, scores = np.asarray(pr.boxes), np.asarray(pr.scores)
+            order = rng.sample(range(len(scores)), len(scores))
+            shuffled_preds.append(Prediction(pr.image_id, boxes[order], scores[order]))
+        assert (
+            evaluate_detections(shuffled_truths, shuffled_preds).to_dict() == baseline
+        )
 
 
 def test_rejects_predictions_for_unknown_image() -> None:
