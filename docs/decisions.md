@@ -2,7 +2,7 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
-- 2026-09-29 · chose to require signed commits on `main` through GitHub's own signature on squash merges over setting up a local signing key · every commit on `main` is verified with no key for agents to hold.
+- 2026-09-29 · chose to rely on GitHub signing each squash merge over the "require signed commits" rule · the rule was tried and blocked every PR, because it also demands signatures on the branch commits, which needs a local signing key that agents would hold. Commits on `main` are verified either way.
 - 2026-09-29 · chose a separate `process-auditor` over widening `repo-janitor` · one checks how work was done and may fix records; the other checks the repo's contents and changes nothing.
 - 2026-09-29 · chose to quote results only from runs on a clean commit on `main` over allowing branch runs · the owner's rule against "works on my machine"; enforced by the module in #23.
 - 2026-09-29 · chose the main session as a lead that delegates in the background over doing the work itself · keeps its context for judgement; agents return short reports and the detail goes on the issue.

@@ -109,10 +109,10 @@ Two standing issues never close: "Reusable tooling candidates" (#9) and
 
 - Create branches, commit, push branches, open and update PRs.
 - Create, edit, comment on, and close issues. Update the board.
-- Merge PRs. `main` is protected: nothing is pushed to it directly, a PR
-  merges only when the `checks` CI job passes, and every commit on it must be
-  signed. GitHub signs squash merges itself, so merge through GitHub and
-  never locally. No human review is required.
+- Merge PRs. `main` is protected: nothing is pushed to it directly, and a PR
+  merges only when the `checks` CI job passes. No human review is required.
+  Merge through GitHub and never locally: GitHub signs each squash merge, so
+  every commit on `main` shows as verified.
   Set a PR to merge itself with `gh pr merge <n> --auto --squash`.
 - Delete superseded code and docs. Git history is the archive.
 - Delete and regenerate anything under `data/manifests/` and `outputs/`.
