@@ -9,19 +9,14 @@
       "Bash(gh label *)",
       "Bash(gh project *)",
       "Bash(gh run *)",
-      "Bash(gh pr list *)",
-      "Bash(gh pr view *)",
-      "Bash(gh pr diff *)",
-      "Bash(gh pr checks *)",
-      "Bash(gh pr create *)",
-      "Bash(gh pr edit *)",
-      "Bash(gh pr comment *)",
-      "Bash(gh pr ready *)",
+      "Bash(gh pr *)",
       "Bash(git push origin *)",
-      "Bash(git push -u origin *)"
+      "Bash(git push -u origin *)",
+      "Bash(aws s3 ls *)",
+      "Bash(aws s3 cp *)",
+      "Bash(aws sts get-caller-identity *)"
     ],
     "ask": [
-      "Bash(gh pr merge *)",
       "Bash(gh repo edit *)",
       "Bash(gh repo delete *)",
       "Bash(gh release *)",
@@ -34,19 +29,22 @@
       "Bash(git push -f *)",
       "Bash(git push * --force*)",
       "Bash(git push * -f)",
+      "Bash(git push origin main*)",
       "Bash(rm -rf data*)",
       "Bash(rm -rf ./data*)",
       "Bash(aws s3 rm *)",
-      "Bash(aws s3 rb *)"
+      "Bash(aws s3 rb *)",
+      "Bash(aws s3 sync * --delete*)"
     ]
   },
   "autoMode": {
     "soft_deny": [
       "$defaults",
       "Deleting or overwriting anything under data/ or in the project's S3 bucket",
-      "Starting any cloud compute or paid service, including SageMaker jobs, endpoints, and notebooks",
+      "Starting paid cloud compute or a paid service, including SageMaker jobs, endpoints, and notebooks, and any instance outside the AWS free tier",
       "Starting a local training or processing run expected to take more than one hour",
-      "Installing third-party Claude plugins, skills, hooks, or MCP servers"
+      "Installing third-party Claude plugins, skills, hooks, or MCP servers",
+      "Changing branch protection or other repository settings"
     ]
   }
 }
