@@ -280,6 +280,17 @@ to its issue or PR. No version numbers.
   `train-ssl` or `train-detector` for a debugging run: it writes to
   `outputs/scratch-<run-name>/` with `"scratch": true` in `run.json`. A run
   directory is never overwritten; pick another `--run-name`.
+- The run directory is the only place an experiment writes (there is no
+  `--output`). `start_run` inspects the repository that holds the running
+  code, not the current directory, and refuses a normal run from a
+  non-editable install. Tracked files hidden by skip-worktree or
+  assume-unchanged also refuse a normal run. `run.json` records the SHA-256
+  of every input (manifests, checkpoint). A normal run given
+  `--ssl-checkpoint` needs a `run.json` beside it with `scratch` false; the
+  parent's name and commit are recorded.
+- A normal run is quotable only if its `run.json` has `"status": "completed"`.
+  `"started"` means it crashed or is still running; `"failed"` records the
+  error. Known limit: files ignored through `.git/info/exclude` are not seen.
 - Size runs for the laptop first. Aim for under 30 minutes.
 - Any number quoted in a doc or README must be reproducible from a committed
   config. If a number cannot be traced, remove it.
