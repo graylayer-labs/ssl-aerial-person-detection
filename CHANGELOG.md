@@ -19,6 +19,16 @@ each links to the issue or pull request that holds the detail.
   over a flight, so equal frame numbers do not guarantee the same instant.
   ([#5](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/5))
 
+**Added**
+- Every experiment now starts through `aerial_search.run.start_run`, which
+  refuses a run from a dirty tree or a commit not on `origin/main` and writes
+  `run.json` (commit, config, seed, machine, input hashes, status). Results
+  are written only into the run directory, and a normal run must start from a
+  checkpoint made by a normal run. Debugging runs need `--scratch` and are
+  labelled so their numbers cannot be quoted; only runs with status
+  `completed` are quotable.
+  ([#23](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/23))
+
 **Changed**
 - The project restarted after five weeks idle, with a new direction: start
   from a pretrained foundation model, adapt it with self-supervised learning
