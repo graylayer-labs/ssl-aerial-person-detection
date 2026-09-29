@@ -19,9 +19,10 @@ description: Audit the repository for drift and clutter, then apply the safe cle
 4. Make the changes on a branch named `chore/tidy-<date>`, one logical change
    per commit.
 5. Run `uv run pytest` and `uv run ruff check .`.
-6. Ask the `reviewer` agent to check the branch if it touches anything under
-   `src/`.
-7. Open a draft PR. Tell the owner what changed and what was left.
+6. Review before merge as `CLAUDE.md` describes, and say in the PR which
+   review happened.
+7. Open a PR as `CLAUDE.md` describes. Tell the owner what changed and what
+   was left.
 
 ## Rules
 

@@ -26,6 +26,7 @@ command and what it showed.
    decisions, and a link to the merged PR.
 2. Every closed sub-issue has a line in its epic's "Decisions so far".
 3. Decisions named in handoffs appear in `docs/decisions.md`.
+   Key changes, as `CLAUDE.md` defines them, appear in `CHANGELOG.md`.
 
 **Pull requests**
 4. Every merged PR closes an issue and has a Conventional Commits title.
@@ -60,6 +61,8 @@ command and what it showed.
   issue's own handoff.
 - A missing handoff comment, rebuilt from the PR and its commits. Head it
   "Reconstructed by audit" and include only what those sources show.
+- Missing entries in `docs/decisions.md` and `CHANGELOG.md`, taken from what
+  a closed issue's handoff states.
 - Small corrections to `CLAUDE.md`, agent files, and skill files, on a branch
   named `chore/audit-<date>`, as one PR.
 

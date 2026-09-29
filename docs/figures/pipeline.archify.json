@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Approach: from unlabelled footage to a person detector",
+    "output": ".archify/dataflow-pipeline-20260929-160100/pipeline.html",
+    "quality_profile": "showcase",
+    "viewBox": [1076, 520],
+    "legend": {
+      "entries": {
+        "emphasis": { "label": "footage and features" },
+        "dashed": { "label": "label supervision" },
+        "database": { "label": "labelled data" },
+        "default": { "label": "starting weights" }
+      }
+    }
+  },
+  "stages": [
+    { "label": "Drone footage" },
+    { "label": "Pairing" },
+    { "label": "Adaptation" },
+    { "label": "Detection" },
+    { "label": "Evaluation" }
+  ],
+  "nodes": [
+    { "id": "rgb", "type": "external", "label": "RGB camera", "sublabel": "mostly unlabelled", "stage": 0, "row": 0 },
+    { "id": "thermal", "type": "external", "label": "Thermal camera", "sublabel": "mostly unlabelled", "stage": 0, "row": 2 },
+    { "id": "pair", "type": "backend", "label": "Pair frames", "sublabel": "same moment", "stage": 1, "row": 1 },
+    { "id": "foundation", "type": "external", "label": "Pretrained model", "sublabel": "vision foundation", "stage": 2, "row": 0 },
+    { "id": "adapt", "type": "backend", "label": "Self-supervised", "sublabel": "aerial RGB + thermal", "stage": 2, "row": 1 },
+    { "id": "labels", "type": "database", "label": "Few labels", "sublabel": "small labelled fraction", "stage": 3, "row": 2 },
+    { "id": "detector", "type": "backend", "label": "Person detector", "sublabel": "trained on top", "stage": 3, "row": 1 },
+    { "id": "evaluate", "type": "security", "label": "Unseen flights", "sublabel": "held-out evaluation", "stage": 4, "row": 1 }
+  ],
+  "flows": [
+    { "id": "rgb-frames", "from": "rgb", "to": "pair", "label": "RGB frames", "variant": "emphasis" },
+    { "id": "thermal-frames", "from": "thermal", "to": "pair", "label": "thermal frames", "variant": "emphasis" },
+    { "id": "paired", "from": "pair", "to": "adapt", "label": "paired footage", "variant": "emphasis" },
+    { "id": "start", "from": "foundation", "to": "adapt", "label": "starting point", "variant": "default", "labelAt": [530, 201] },
+    { "id": "representations", "from": "adapt", "to": "detector", "label": "adapted features", "variant": "emphasis" },
+    { "id": "supervision", "from": "labels", "to": "detector", "label": "supervision", "variant": "dashed" },
+    { "id": "held-out", "from": "detector", "to": "evaluate", "label": "detections", "variant": "emphasis" }
+  ],
+  "cards": []
+}

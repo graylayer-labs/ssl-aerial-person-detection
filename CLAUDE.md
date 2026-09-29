@@ -23,6 +23,11 @@ to the owner. It does not do routine work itself.
   issue.
 - **Verify before trusting.** Re-run the checks an agent reports, and test
   its most important claim yourself.
+- **Push after verifying.** Agents commit on their branch and stop. The lead
+  pushes and opens the PR once it has re-run their checks.
+- **Say who did the work.** The `agent:` label records the plan. If the lead
+  does an issue itself, or a different model is used, the handoff says so
+  and why.
 - **Write the brief as if to a stranger.** An agent knows only what its
   prompt and the issue tell it.
 
@@ -60,7 +65,7 @@ child.
 ## The board
 
 - Board: https://github.com/orgs/graylayer-labs/projects/1 (project number 1,
-  owner `graylayer-labs`). It is private.
+  owner `graylayer-labs`). It is public.
 - Issues: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues
 - Status lives on the board only: Todo, In Progress, Done.
 - **Epics** are parent issues labelled `epic`, one per milestone. Tasks are
@@ -84,6 +89,8 @@ gh api -X POST repos/graylayer-labs/ssl-aerial-person-detection/issues/<parent>/
 
 ```bash
 gh project item-list 1 --owner graylayer-labs --format json --limit 100   # status
+# to read one field, add --jq to this command. Piping its JSON into a
+# separate jq can fail on control characters in issue text.
 
 # read a task in full. `gh issue view <n> --comments` can omit the body.
 gh issue view <n> --json title,body,labels,comments --jq \
@@ -151,6 +158,12 @@ CI proves the code runs. It does not prove a result is valid.
 `.claude/settings.json` backs these up with permission rules. The rules are a
 safety net, not the definition; this list is.
 
+### Record every approval
+
+When the owner approves something on this list, quote their words and the
+date in a comment on the issue, before acting. An approval that lives only in
+a conversation is lost when the session ends.
+
 ### When a task needs the owner partway through
 
 Some issues have one step only the owner can do, such as looking at a figure.
@@ -179,14 +192,31 @@ uv run pytest                  # tests
 uv run ruff check --fix .      # lint
 uv run ruff format .           # format
 uv run ty check                # types
+tools/install_archify.sh       # one-time: install the Archify diagram skill
 ```
 
-- `ty check` reports two errors in `src/aerial_search/data/wisard.py` on
-  `main`. They come from the pairing bug in issue #2 and are fixed there. CI
-  does not run `ty` until then.
+- CI runs all four checks: ruff check, ruff format, ty, and pytest.
 - Inside an agent worktree, `uv run` warns that `VIRTUAL_ENV` does not match.
   It is harmless. Prefix the command with `env -u VIRTUAL_ENV` to silence it.
 - A fresh worktree has no environment. Run `uv sync --dev` first.
+
+## Diagrams
+
+- **Mermaid** for drafts and working documents. It costs few tokens and GitHub
+  renders it.
+- **Archify** for finished figures: the README, milestone write-ups, and blog
+  posts. Figures and their source JSON live in `docs/figures/`, for example
+  `pipeline.svg` and `pipeline.archify.json`.
+- Install once with `tools/install_archify.sh`. It fetches a pinned, verified
+  commit into `.claude/skills/archify/`, which is git-ignored, and refuses to
+  install if the commit differs. `--force` replaces an existing install.
+- Limits, enforced in `.claude/settings.json`:
+  - No brand URLs in a diagram. Brand capture fetches from the network.
+  - Never pass `--open`.
+  - Never run `preview`.
+- Archify has no command-line SVG export. Export from the viewer's Export menu,
+  and commit only the SVG and its JSON, never anything from `.archify/`. Check
+  the SVG for absolute paths first.
 
 ## Data
 
@@ -194,8 +224,8 @@ uv run ty check                # types
 
 | What | Where |
 |---|---|
-| Raw WiSARD images and labels, 122 GB | `data/raw/` in the main checkout |
-| Manifests, regenerable | `data/manifests/` in the main checkout |
+| Raw WiSARD images and labels, 41 GB | `data/raw/wisard-full/` in the main checkout |
+| Manifests, regenerable | `data/manifests/wisard-full/` in the main checkout |
 | Archive of the raw data | S3 bucket `ssl-aerial-person-detection-data-eu-west1`, region `eu-west-1`. Not re-verified; see issue #7 |
 
 - The main checkout is the first path printed by `git worktree list`.
@@ -204,6 +234,23 @@ uv run ty check                # types
   checkout by absolute path.
 - If a task needs data you cannot reach, stop and say so. Do not invent
   figures or regenerate from nothing.
+- `data/raw/` also holds a second copy of the dataset at its top level and the
+  downloaded zip under `archives/`, about 41 GB each. Use only
+  `data/raw/wisard-full/`. The owner is deciding what to delete; see issue #7.
+
+### Pairing
+
+Which RGB frame goes with which thermal frame is decided in
+`src/aerial_search/data/wisard.py`, and the evidence is in
+`docs/wisard-pairing-review.md`. Only directory pairs listed in
+`WISARD_COLLECTIONS` are paired. Pairs are 0 to 2 frames apart in time; the
+cameras drift. Regenerate the manifests and the contact sheets with:
+
+```bash
+uv run aerial-search prepare data/raw/wisard-full --output data/manifests/wisard-full
+uv run python tools/pairing_contact_sheets.py data/raw/wisard-full \
+  data/manifests/wisard-full/all_pairs.jsonl outputs/pairing-check
+```
 
 ## Layout
 
@@ -226,12 +273,30 @@ Keep it short, and keep one home for each fact.
 | Why the project exists | `INTENT.md` |
 | How to work here | this file |
 | What is planned or in progress | the board |
+| What changed that a reader should know | `CHANGELOG.md`, key items only |
 | Why a technical choice was made | `docs/decisions.md`, one line each |
 | The evidence behind a decision, when it is long | `docs/<topic>-review.md` |
 | What a milestone found | `docs/milestones/<name>.md`, created with the first write-up |
 
 Write a decision down when a future agent would otherwise have to guess or
 re-derive it. Format: `YYYY-MM-DD · chose X over Y · reason`.
+
+### Changelog
+
+`CHANGELOG.md` is for a reader who wants the project's history in two
+minutes. Add an entry in the same PR as the change when the change is one of
+these:
+
+- a finding that changes what can be trusted, such as a bug in the data
+- a result, positive or negative
+- a change of direction or method
+- a new capability, dataset, or model
+- a rule that changes how work is done or merged
+- something tried and dropped
+
+Leave out routine fixes, refactors, and wording changes. Group entries by
+epic and date, newest first. Each entry is one or two sentences with a link
+to its issue or PR. No version numbers.
 
 ## Experiments
 
@@ -242,8 +307,24 @@ re-derive it. Format: `YYYY-MM-DD · chose X over Y · reason`.
   quote its numbers.
 - Every run is defined by a committed config and a seed, and writes to
   `outputs/<run-name>/` with a `run.json` that records the commit, the config,
-  the seed, and the machine. Issue #23 adds the module that enforces this;
-  until it lands, record the commit by hand in the issue.
+  the seed, and the machine. `src/aerial_search/run.py` (`start_run`) enforces
+  this: it refuses a normal run unless the tree is clean (untracked files
+  count) and `HEAD` is on the local `origin/main`, and it fails closed if git
+  cannot tell. It never fetches, so run `git fetch` first. Pass `--scratch` to
+  `train-ssl` or `train-detector` for a debugging run: it writes to
+  `outputs/scratch-<run-name>/` with `"scratch": true` in `run.json`. A run
+  directory is never overwritten; pick another `--run-name`.
+- The run directory is the only place an experiment writes (there is no
+  `--output`). `start_run` inspects the repository that holds the running
+  code, not the current directory, and refuses a normal run from a
+  non-editable install. Tracked files hidden by skip-worktree or
+  assume-unchanged also refuse a normal run. `run.json` records the SHA-256
+  of every input (manifests, checkpoint). A normal run given
+  `--ssl-checkpoint` needs a `run.json` beside it with `scratch` false and
+  `status` completed; the parent's name and commit are recorded.
+- A normal run is quotable only if its `run.json` has `"status": "completed"`.
+  `"started"` means it crashed or is still running; `"failed"` records the
+  error. Known limit: files ignored through `.git/info/exclude` are not seen.
 - Size runs for the laptop first. Aim for under 30 minutes.
 - Any number quoted in a doc or README must be reproducible from a committed
   config. If a number cannot be traced, remove it.

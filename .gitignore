@@ -11,3 +11,6 @@ dist/
 /data
 outputs/
 .claude/worktrees/
+.claude/skills/archify
+.archify/
+.archify-*
