@@ -8,6 +8,6 @@ __pycache__/
 *.py[cod]
 build/
 dist/
-/data/
+/data
 outputs/
 .claude/worktrees/
