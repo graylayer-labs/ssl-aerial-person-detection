@@ -263,6 +263,19 @@ def test_clips_boxes_to_the_image_and_drops_empty_ones(tmp_path: Path) -> None:
     assert stats == {"boxes_clipped": 2, "boxes_dropped": 1}
 
 
+def test_does_not_count_label_rounding_as_clipping(tmp_path: Path) -> None:
+    # A real Baker IR label: the left edge is -0.0000005, from rounding the
+    # coordinates to six decimals, not from a box drawn past the image.
+    labels = tmp_path / "labels.txt"
+    labels.write_text("0 0.060937 0.818359 0.121875 0.193359\n")
+    stats: dict[str, int] = {}
+
+    boxes = load_boxes(labels, stats=stats)
+
+    assert boxes[0].x_center - boxes[0].width / 2 >= 0
+    assert stats == {"boxes_clipped": 0, "boxes_dropped": 0}
+
+
 def test_prepares_collection_level_manifests(tmp_path: Path) -> None:
     source = tmp_path / "raw"
     collections = {}

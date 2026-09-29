@@ -129,6 +129,10 @@ WISARD_COLLECTIONS: Collections = {
 # wrong pairings from one flight day; the clip-number check on file names does.
 MIN_SHARED_FRAMES = 0.95
 
+# WiSARD labels are written to six decimals, so a box drawn to the image edge
+# can overshoot it by up to 1e-6. That is clipped but not counted as clipping.
+_EDGE_TOLERANCE = 1e-6
+
 _FRAME_NUMBER = re.compile(r"[_ ](\d+)\.(?:jpg|jpeg)$", re.IGNORECASE)
 _IMAGE_SUFFIXES = {".jpg", ".jpeg"}
 
@@ -328,8 +332,8 @@ def load_boxes(path: Path, stats: dict[str, int] | None = None) -> list[Bounding
     """Load normalized person boxes from a WiSARD annotation file.
 
     Each box is clipped to the image. A box with no area left after clipping
-    is dropped. If stats is given, 'boxes_clipped' counts boxes that were
-    changed or dropped by clipping and 'boxes_dropped' counts the dropped ones.
+    is dropped. If stats is given, 'boxes_clipped' counts boxes that ran more
+    than _EDGE_TOLERANCE past the image and 'boxes_dropped' counts the dropped ones.
     """
     boxes = []
     for line_number, line in enumerate(path.read_text().splitlines(), start=1):
@@ -341,7 +345,8 @@ def load_boxes(path: Path, stats: dict[str, int] | None = None) -> list[Bounding
         x, y, w, h = (float(v) for v in fields[1:])
         x0, x1 = max(0.0, x - w / 2), min(1.0, x + w / 2)
         y0, y1 = max(0.0, y - h / 2), min(1.0, y + h / 2)
-        clipped = (x0, x1, y0, y1) != (x - w / 2, x + w / 2, y - h / 2, y + h / 2)
+        overshoot = max(-(x - w / 2), x + w / 2 - 1, -(y - h / 2), y + h / 2 - 1)
+        clipped = overshoot > _EDGE_TOLERANCE
         empty = x1 <= x0 or y1 <= y0
         if stats is not None:
             stats["boxes_clipped"] = stats.get("boxes_clipped", 0) + clipped
