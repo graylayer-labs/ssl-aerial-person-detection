@@ -195,9 +195,7 @@ uv run ty check                # types
 tools/install_archify.sh       # one-time: install the Archify diagram skill
 ```
 
-- `ty check` reports two errors in `src/aerial_search/data/wisard.py` on
-  `main`. They come from the pairing bug in issue #2 and are fixed there. CI
-  does not run `ty` until then.
+- CI runs all four checks: ruff check, ruff format, ty, and pytest.
 - Inside an agent worktree, `uv run` warns that `VIRTUAL_ENV` does not match.
   It is harmless. Prefix the command with `env -u VIRTUAL_ENV` to silence it.
 - A fresh worktree has no environment. Run `uv sync --dev` first.
@@ -226,8 +224,8 @@ tools/install_archify.sh       # one-time: install the Archify diagram skill
 
 | What | Where |
 |---|---|
-| Raw WiSARD images and labels, 122 GB | `data/raw/` in the main checkout |
-| Manifests, regenerable | `data/manifests/` in the main checkout |
+| Raw WiSARD images and labels, 41 GB | `data/raw/wisard-full/` in the main checkout |
+| Manifests, regenerable | `data/manifests/wisard-full/` in the main checkout |
 | Archive of the raw data | S3 bucket `ssl-aerial-person-detection-data-eu-west1`, region `eu-west-1`. Not re-verified; see issue #7 |
 
 - The main checkout is the first path printed by `git worktree list`.
@@ -236,6 +234,23 @@ tools/install_archify.sh       # one-time: install the Archify diagram skill
   checkout by absolute path.
 - If a task needs data you cannot reach, stop and say so. Do not invent
   figures or regenerate from nothing.
+- `data/raw/` also holds a second copy of the dataset at its top level and the
+  downloaded zip under `archives/`, about 41 GB each. Use only
+  `data/raw/wisard-full/`. The owner is deciding what to delete; see issue #7.
+
+### Pairing
+
+Which RGB frame goes with which thermal frame is decided in
+`src/aerial_search/data/wisard.py`, and the evidence is in
+`docs/wisard-pairing-review.md`. Only directory pairs listed in
+`WISARD_COLLECTIONS` are paired. Pairs are 0 to 2 frames apart in time; the
+cameras drift. Regenerate the manifests and the contact sheets with:
+
+```bash
+uv run aerial-search prepare data/raw/wisard-full --output data/manifests/wisard-full
+uv run python tools/pairing_contact_sheets.py data/raw/wisard-full \
+  data/manifests/wisard-full/all_pairs.jsonl outputs/pairing-check
+```
 
 ## Layout
 

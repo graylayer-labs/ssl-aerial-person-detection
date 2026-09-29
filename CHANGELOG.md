@@ -9,6 +9,16 @@ each links to the issue or pull request that holds the detail.
 ### 2026-09-29
 
 **Found**
+- WiSARD frame pairing is fixed and checked. Frames are paired only within
+  17 verified clip pairs from five flight days, giving 14,834 pairs, of which
+  5,739 are labelled in both cameras. Both earlier manifest sets were wrong:
+  one paired by position and included 1,620 mismatched pairs, the other lost
+  most of seven clips to a parsing bug. One flight, Airfield, is excluded
+  because its two cameras number frames at different rates. Pairs are 0 to 2
+  frames apart in time, and this is accepted. A further 6,658 pairs are
+  labelled in one camera only; new per-camera manifests carry them.
+  ([#2](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/2),
+  [review](docs/wisard-pairing-review.md))
 - The code that pairs RGB frames with thermal frames reads only 5 or 6 digit
   frame numbers, and so misses about 53% of the image files in WiSARD. Every
   dataset figure quoted before this date is unverified. The bug is pinned by
