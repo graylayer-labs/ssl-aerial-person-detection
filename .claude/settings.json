@@ -67,6 +67,7 @@
     ]
   },
   "env": {
-    "ARCHIFY_UPDATE_CHECK_DISABLED": "1"
+    "ARCHIFY_UPDATE_CHECK_DISABLED": "1",
+    "AWS_PROFILE": "ssl-aerial"
   }
 }

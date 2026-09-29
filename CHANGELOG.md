@@ -40,6 +40,11 @@ each links to the issue or pull request that holds the detail.
   ([#23](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/23))
 
 **Changed**
+- The dataset is stored once on the laptop and once in S3, with versioning on.
+  81 GB of duplicate copies were deleted after a byte-for-byte comparison.
+  Agents reach AWS through a role limited to the project bucket, which cannot
+  delete.
+  ([#7](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/7))
 - The project restarted after five weeks idle, with a new direction: start
   from a pretrained foundation model, adapt it with self-supervised learning
   on unlabelled footage, then detect people with few labels. The earlier plan

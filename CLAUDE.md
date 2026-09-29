@@ -226,7 +226,7 @@ tools/install_archify.sh       # one-time: install the Archify diagram skill
 |---|---|
 | Raw WiSARD images and labels, 41 GB | `data/raw/wisard-full/` in the main checkout |
 | Manifests, regenerable | `data/manifests/wisard-full/` in the main checkout |
-| Archive of the raw data | S3 bucket `ssl-aerial-person-detection-data-eu-west1`, region `eu-west-1`. Not re-verified; see issue #7 |
+| The same dataset, as the durable copy | S3 bucket `ssl-aerial-person-detection-data-eu-west1`, region `eu-west-1`, under `wisard/raw/wisard-full/`. Versioning is on. Checked equal to the local copy by path and size on 2026-09-29 |
 
 - The main checkout is the first path printed by `git worktree list`.
 - Agent worktrees get `data/` as a symlink to the main checkout's copy, set in
@@ -234,9 +234,24 @@ tools/install_archify.sh       # one-time: install the Archify diagram skill
   checkout by absolute path.
 - If a task needs data you cannot reach, stop and say so. Do not invent
   figures or regenerate from nothing.
-- `data/raw/` also holds a second copy of the dataset at its top level and the
-  downloaded zip under `archives/`, about 41 GB each. Use only
-  `data/raw/wisard-full/`. The owner is deciding what to delete; see issue #7.
+- The dataset exists once on the laptop and once in S3. If a directory is ever
+  missing locally, fetch it from S3; do not look for another copy.
+
+### AWS
+
+- Agents use the AWS profile `ssl-aerial`, set as `AWS_PROFILE` in
+  `.claude/settings.json`. It assumes the role
+  `ssl-aerial-person-detection-agent`, which can list, read, and write objects
+  in the project bucket and nothing else. It cannot delete objects or
+  versions, or change bucket settings.
+- Do not name another profile. The owner's own sign-in has administrator
+  access and is not for agents.
+- A fresh machine needs the profile added to `~/.aws/config`: `role_arn` of
+  the role above, `source_profile` of the owner's sign-in, region `eu-west-1`.
+- The sign-in behind the profile is temporary. If AWS commands fail with an
+  expired token, ask the owner to sign in again.
+- Anything that costs money needs the owner's approval. See "Ask the owner
+  first".
 
 ### Pairing
 
