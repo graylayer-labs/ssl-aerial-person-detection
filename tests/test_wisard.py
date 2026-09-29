@@ -1,74 +1,108 @@
+import json
+import re
 from pathlib import Path
 
 import pytest
 
 from aerial_search.data.wisard import (
     WISARD_COLLECTIONS,
+    Collection,
     _extract_frame_index,
+    _frames_by_index,
     load_boxes,
     load_pairs,
     pairing_report,
     prepare_manifests,
+    select_collections,
 )
 
 # One flight in the shape of WiSARD: the drone records VIS as DJI file n and IR
-# as DJI file n+1, so the directory suffixes differ by one.
-FLIGHT = {"flight_0001": ("flight_VIS_0001", "flight_IR_0002")}
+# as DJI file n+1, and every file name carries its clip number.
+FLIGHT = {
+    "flight_0001": Collection("flight_VIS_0001", "flight_IR_0002", "0001", "0002")
+}
+WISARD_ROOT = Path(__file__).resolve().parents[1] / "data" / "raw" / "wisard-full"
 
 
 def test_pairs_frames_by_index_not_position(tmp_path: Path) -> None:
-    rgb = tmp_path / "flight_VIS_0001"
-    thermal = tmp_path / "flight_IR_0002"
-    rgb.mkdir()
-    thermal.mkdir()
+    rgb, thermal = _flight_dirs(tmp_path)
+    # Each camera dropped a different frame. Position-based pairing would slip
+    # by one frame between frames 5 and 20; index-based pairing does not.
     for number in range(40):
-        _sample(rgb, number)
-        _sample(thermal, number + 1)
+        if number != 5:
+            _sample(rgb, number)
+        if number != 20:
+            _sample(thermal, number)
 
     pairs = load_pairs(tmp_path, collections=FLIGHT)
 
-    # RGB has frames 0-39, thermal has 1-40. Position-based pairing would give
-    # 40 pairs, each one frame apart; index-based pairing gives frames 1-39.
-    assert len(pairs) == 39
+    assert len(pairs) == 38
     assert all(_frame(p.rgb_image) == _frame(p.thermal_image) for p in pairs)
-    assert _frame(pairs[0].rgb_image) == 1
+
+
+def test_applies_thermal_frame_offset(tmp_path: Path) -> None:
+    # The layout of MtErie_0003: VIS numbered from 0, IR numbered from 1.
+    rgb, thermal = _flight_dirs(tmp_path)
+    for number in range(40):
+        _sample(rgb, number)
+        _sample(thermal, number + 1)
+    offset = {
+        "flight_0001": Collection(
+            "flight_VIS_0001", "flight_IR_0002", "0001", "0002", thermal_offset=1
+        )
+    }
+
+    pairs = load_pairs(tmp_path, collections=offset)
+
+    assert len(pairs) == 40
+    assert all(_frame(p.thermal_image) == _frame(p.rgb_image) + 1 for p in pairs)
 
 
 def test_pairs_flight_whose_frame_counts_differ(tmp_path: Path) -> None:
-    rgb = tmp_path / "flight_VIS_0001"
-    thermal = tmp_path / "flight_IR_0002"
-    rgb.mkdir()
-    thermal.mkdir()
+    rgb, thermal = _flight_dirs(tmp_path)
     # Real WiSARD naming: 8-digit RGB numbers, 5-digit thermal numbers from a
-    # video export. RGB has 6 frames, thermal has 8.
-    for number in range(6):
+    # video export. RGB has 39 frames, thermal has 40.
+    for number in range(39):
         _touch(rgb / f"flight_VIS_0001_{number:08d}.jpg")
-    for number in range(8):
+    for number in range(40):
         _touch(thermal / f"DJI_0002.mp4_{number:05d}.jpg")
 
     pairs = load_pairs(tmp_path, collections=FLIGHT, labelled_only=False)
     report = pairing_report(tmp_path, collections=FLIGHT)
 
-    assert [_frame(p.rgb_image) for p in pairs] == list(range(6))
-    assert [_frame(p.thermal_image) for p in pairs] == list(range(6))
-    assert report["collections"]["flight_0001"] == {
-        "rgb_dir": "flight_VIS_0001",
-        "thermal_dir": "flight_IR_0002",
-        "rgb_frames": 6,
-        "thermal_frames": 8,
-        "pairs": 6,
-        "labelled_pairs": 6,
-        "rgb_only_frames": 0,
-        "thermal_only_frames": 2,
-    }
+    assert [_frame(p.rgb_image) for p in pairs] == list(range(39))
+    assert [_frame(p.thermal_image) for p in pairs] == list(range(39))
+    counts = report["collections"]["flight_0001"]
+    assert counts["rgb_frames"] == 39
+    assert counts["thermal_frames"] == 40
+    assert counts["pairs"] == 39
+    assert counts["thermal_only_frames"] == 1
+
+
+def test_counts_pairs_by_which_camera_is_labelled(tmp_path: Path) -> None:
+    rgb, thermal = _flight_dirs(tmp_path)
+    for number in range(40):
+        (rgb / f"flight_VIS_0001_{number:05d}.jpg").touch()
+        (thermal / f"flight_IR_0002_{number:05d}.jpg").touch()
+    for number in range(10):  # both labelled
+        (rgb / f"flight_VIS_0001_{number:05d}.txt").touch()
+        (thermal / f"flight_IR_0002_{number:05d}.txt").touch()
+    for number in range(10, 13):  # RGB only
+        (rgb / f"flight_VIS_0001_{number:05d}.txt").touch()
+    for number in range(13, 20):  # thermal only
+        (thermal / f"flight_IR_0002_{number:05d}.txt").touch()
+
+    counts = pairing_report(tmp_path, collections=FLIGHT)["collections"]["flight_0001"]
+
+    assert counts["labelled_pairs"] == 10
+    assert counts["rgb_only_labelled_pairs"] == 3
+    assert counts["thermal_only_labelled_pairs"] == 7
+    assert counts["unlabelled_pairs"] == 20
 
 
 def test_skips_missing_annotation(tmp_path: Path) -> None:
     """Pairs without labels in both modalities are left out of load_pairs."""
-    rgb = tmp_path / "flight_VIS_0001"
-    thermal = tmp_path / "flight_IR_0002"
-    rgb.mkdir()
-    thermal.mkdir()
+    rgb, thermal = _flight_dirs(tmp_path)
     _sample(rgb, 0)  # Has annotation
     (thermal / "flight_IR_0002_00000.jpeg").touch()  # Same frame, no annotation
 
@@ -88,7 +122,9 @@ def test_pairs_only_listed_directories_and_reports_the_rest(tmp_path: Path) -> N
     ]:
         (tmp_path / name).mkdir()
         _sample(tmp_path / name, 0)
-    collections = {"site_0003": ("site_VIS_0003", "site_IR_0004")}
+    collections = {
+        "site_0003": Collection("site_VIS_0003", "site_IR_0004", "0003", "0004")
+    }
 
     pairs = load_pairs(tmp_path, collections=collections)
     report = pairing_report(tmp_path, collections=collections)
@@ -103,11 +139,39 @@ def test_pairs_only_listed_directories_and_reports_the_rest(tmp_path: Path) -> N
     ]
 
 
+def test_missing_listed_directory_stops_the_run(tmp_path: Path) -> None:
+    rgb, thermal = _flight_dirs(tmp_path)
+    _sample(rgb, 0)
+    _sample(thermal, 0)
+    thermal.rename(tmp_path / "renamed")
+
+    with pytest.raises(FileNotFoundError, match="flight_IR_0002"):
+        load_pairs(tmp_path, collections=FLIGHT)
+    with pytest.raises(FileNotFoundError, match="flight_IR_0002"):
+        prepare_manifests(tmp_path, tmp_path / "out", collections=FLIGHT)
+
+
+def test_select_collections_names_a_subset_explicitly() -> None:
+    subset = select_collections(["220109_Baker_Enterprise_1"])
+
+    assert list(subset) == ["220109_Baker_Enterprise_1"]
+    with pytest.raises(KeyError, match="no_such_clip"):
+        select_collections(["no_such_clip"])
+
+
+def test_rejects_file_from_another_clip(tmp_path: Path) -> None:
+    rgb, thermal = _flight_dirs(tmp_path)
+    for number in range(40):
+        _sample(rgb, number)
+        _sample(thermal, number)
+    _touch(thermal / "flight_IR_0004_00000041.jpg")  # a frame of clip 0004
+
+    with pytest.raises(ValueError, match="flight_IR_0004_00000041.jpg"):
+        load_pairs(tmp_path, collections=FLIGHT, labelled_only=False)
+
+
 def test_rejects_duplicate_frame_numbers_in_one_directory(tmp_path: Path) -> None:
-    rgb = tmp_path / "flight_VIS_0001"
-    thermal = tmp_path / "flight_IR_0002"
-    rgb.mkdir()
-    thermal.mkdir()
+    rgb, thermal = _flight_dirs(tmp_path)
     _touch(rgb / "flight_VIS_0001_00000007.jpg")
     _touch(rgb / "flight_VIS_0001_7.jpeg")  # also frame 7
     _touch(thermal / "flight_IR_0002_00007.jpg")
@@ -117,10 +181,7 @@ def test_rejects_duplicate_frame_numbers_in_one_directory(tmp_path: Path) -> Non
 
 
 def test_rejects_image_without_frame_number(tmp_path: Path) -> None:
-    rgb = tmp_path / "flight_VIS_0001"
-    thermal = tmp_path / "flight_IR_0002"
-    rgb.mkdir()
-    thermal.mkdir()
+    rgb, thermal = _flight_dirs(tmp_path)
     _sample(rgb, 0)
     _sample(thermal, 0)
     _touch(thermal / "thumbnail.jpg")
@@ -129,41 +190,77 @@ def test_rejects_image_without_frame_number(tmp_path: Path) -> None:
         load_pairs(tmp_path, collections=FLIGHT, labelled_only=False)
 
 
-def test_rejects_listed_pair_whose_frame_numbers_barely_overlap(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("rgb_numbers", "thermal_numbers"),
+    [
+        (range(10), range(8, 18)),  # numbering does not overlap
+        (range(10), range(20)),  # one camera has twice the frames
+    ],
+)
+def test_rejects_listed_pair_whose_frame_numbers_do_not_match_up(
+    tmp_path: Path, rgb_numbers: range, thermal_numbers: range
 ) -> None:
-    # If the two directories number their frames differently, equal numbers do
-    # not mean the same moment. Refuse rather than pair a sliver of frames.
-    rgb = tmp_path / "flight_VIS_0001"
-    thermal = tmp_path / "flight_IR_0002"
-    rgb.mkdir()
-    thermal.mkdir()
-    for number in range(10):
+    rgb, thermal = _flight_dirs(tmp_path)
+    for number in rgb_numbers:
         _sample(rgb, number)
-        _sample(thermal, number + 8)
+    for number in thermal_numbers:
+        _sample(thermal, number)
 
     with pytest.raises(ValueError, match="flight_0001"):
         load_pairs(tmp_path, collections=FLIGHT, labelled_only=False)
 
 
-def test_wisard_collections_pair_each_directory_once() -> None:
-    rgb_dirs = [rgb for rgb, _ in WISARD_COLLECTIONS.values()]
-    thermal_dirs = [thermal for _, thermal in WISARD_COLLECTIONS.values()]
+def test_wisard_collections_follow_the_clip_numbering() -> None:
+    rgb_dirs = [c.rgb_dir for c in WISARD_COLLECTIONS.values()]
+    thermal_dirs = [c.thermal_dir for c in WISARD_COLLECTIONS.values()]
+    assert len(set(rgb_dirs + thermal_dirs)) == len(rgb_dirs) + len(thermal_dirs)
 
-    assert len(set(rgb_dirs)) == len(rgb_dirs)
-    assert len(set(thermal_dirs)) == len(thermal_dirs)
-    assert all("_VIS" in name for name in rgb_dirs)
-    assert all("_IR" in name for name in thermal_dirs)
+    for cid, c in WISARD_COLLECTIONS.items():
+        rgb_flight, rgb_suffix = c.rgb_dir.split("_VIS_")
+        thermal_flight, thermal_suffix = c.thermal_dir.split("_IR_")
+        assert rgb_flight == thermal_flight, cid
+        # The drone writes VIS as clip n and IR as clip n+1.
+        assert int(c.thermal_clip) == int(c.rgb_clip) + 1, cid
+        if len(rgb_suffix) == 4:  # directories named after their DJI clip
+            assert (rgb_suffix, thermal_suffix) == (c.rgb_clip, c.thermal_clip), cid
+            assert cid == f"{rgb_flight}_{rgb_suffix}", cid
+    offsets = {cid: c.thermal_offset for cid, c in WISARD_COLLECTIONS.items()}
+    assert {cid for cid, o in offsets.items() if o} == {"210417_MtErie_Enterprise_0003"}
 
 
-def test_loads_normalized_person_boxes(tmp_path: Path) -> None:
+@pytest.mark.skipif(not WISARD_ROOT.is_dir(), reason="WiSARD data not present")
+def test_wisard_collections_match_the_data_on_disk() -> None:
+    for cid, c in WISARD_COLLECTIONS.items():
+        for directory, clip in [
+            (c.rgb_dir, c.rgb_clip),
+            (c.thermal_dir, c.thermal_clip),
+        ]:
+            path = WISARD_ROOT / directory
+            assert path.is_dir(), f"{cid}: {path} missing"
+            token = re.compile(rf"(?<!\d){clip}(?!\d)")
+            names = [p.name for p in path.iterdir() if p.suffix in {".jpg", ".jpeg"}]
+            assert names, cid
+            assert all(token.search(name) for name in names), (cid, directory)
+    report = pairing_report(WISARD_ROOT)
+    assert len(report["collections"]) == len(WISARD_COLLECTIONS)
+
+
+def test_clips_boxes_to_the_image_and_drops_empty_ones(tmp_path: Path) -> None:
     labels = tmp_path / "labels.txt"
-    labels.write_text("0 0.5 0.4 0.1 0.2\n")
+    labels.write_text(
+        "0 0.5 0.4 0.1 0.2\n"  # inside
+        "0 0.98 0.5 0.1 0.2\n"  # runs past the right edge
+        "0 1.2 0.5 0.1 0.2\n"  # wholly outside: nothing left
+    )
+    stats: dict[str, int] = {}
 
-    boxes = load_boxes(labels)
+    boxes = load_boxes(labels, stats=stats)
 
-    assert len(boxes) == 1
-    assert boxes[0].width == 0.1
+    assert len(boxes) == 2
+    assert boxes[0].width == pytest.approx(0.1)
+    assert boxes[1].x_center == pytest.approx(0.965)
+    assert boxes[1].width == pytest.approx(0.07)
+    assert stats == {"boxes_clipped": 2, "boxes_dropped": 1}
 
 
 def test_prepares_collection_level_manifests(tmp_path: Path) -> None:
@@ -176,7 +273,9 @@ def test_prepares_collection_level_manifests(tmp_path: Path) -> None:
         thermal = source / f"2024010{flight_idx}_site_{flight_idx}_IR_0001"
         rgb.mkdir(parents=True)
         thermal.mkdir()
-        collections[f"site_{flight_idx}"] = (rgb.name, thermal.name)
+        collections[f"site_{flight_idx}"] = Collection(
+            rgb.name, thermal.name, "0000", "0001"
+        )
 
         # Each flight: 2 pairs (total 10)
         for number in range(2):
@@ -203,6 +302,41 @@ def test_prepares_collection_level_manifests(tmp_path: Path) -> None:
     assert sum(counts3.values()) == 10
 
 
+def test_writes_one_manifest_per_camera_and_counts_boxes_once(tmp_path: Path) -> None:
+    rgb, thermal = _flight_dirs(tmp_path)
+    for number in range(40):
+        (rgb / f"flight_VIS_0001_{number:05d}.jpg").touch()
+        (thermal / f"flight_IR_0002_{number:05d}.jpg").touch()
+    # Frame 0 labelled in both, with one RGB box past the edge.
+    (rgb / "flight_VIS_0001_00000.txt").write_text("0 0.98 0.5 0.1 0.2\n")
+    (thermal / "flight_IR_0002_00000.txt").write_text("0 0.5 0.5 0.1 0.2\n")
+    # Frame 1 labelled in RGB only, frame 2 in thermal only.
+    (rgb / "flight_VIS_0001_00001.txt").write_text("0 0.5 0.5 0.1 0.2\n")
+    (thermal / "flight_IR_0002_00002.txt").write_text("")
+    out = tmp_path / "out"
+
+    prepare_manifests(tmp_path, out, collections=FLIGHT)
+
+    rgb_records = _records(out / "rgb_labelled.jsonl")
+    thermal_records = _records(out / "thermal_labelled.jsonl")
+    assert [Path(r["image"]).name for r in rgb_records] == [
+        "flight_VIS_0001_00000.jpg",
+        "flight_VIS_0001_00001.jpg",
+    ]
+    assert [Path(r["image"]).name for r in thermal_records] == [
+        "flight_IR_0002_00000.jpg",
+        "flight_IR_0002_00002.jpg",
+    ]
+    assert len(_records(out / "full.jsonl")) == 1
+    quality = json.loads((out / "data_quality.json").read_text())
+    assert quality["boxes"]["flight_0001"] == {
+        "rgb_clipped": 1,
+        "rgb_dropped": 0,
+        "thermal_clipped": 0,
+        "thermal_dropped": 0,
+    }
+
+
 @pytest.mark.parametrize(
     ("name", "frame"),
     [
@@ -227,6 +361,22 @@ def test_rejects_names_without_a_frame_number(name: str) -> None:
         _extract_frame_index(Path(name))
 
 
+def test_frames_by_index_checks_clip_number(tmp_path: Path) -> None:
+    _touch(tmp_path / "DJI_0583 (1-10-2022 2-51-48 PM).mp4_00000.jpg")
+
+    assert list(_frames_by_index(tmp_path, clip="0583")) == [0]
+    with pytest.raises(ValueError, match="0582"):
+        _frames_by_index(tmp_path, clip="0582")
+
+
+def _flight_dirs(root: Path) -> tuple[Path, Path]:
+    rgb = root / "flight_VIS_0001"
+    thermal = root / "flight_IR_0002"
+    rgb.mkdir()
+    thermal.mkdir()
+    return rgb, thermal
+
+
 def _sample(directory: Path, number: int) -> None:
     stem = f"{directory.name}_{number:05d}"
     (directory / f"{stem}.jpeg").touch()
@@ -240,3 +390,7 @@ def _touch(image: Path) -> None:
 
 def _frame(path: Path) -> int:
     return int(path.stem.rsplit("_", 1)[1])
+
+
+def _records(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines()]

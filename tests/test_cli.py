@@ -13,6 +13,25 @@ def test_prepare_command_parses() -> None:
     args = build_parser().parse_args(["prepare", "data/raw/wisard-sample"])
 
     assert args.command == "prepare"
+    assert args.collection is None
+
+
+def test_prepare_takes_an_explicit_subset_of_collections() -> None:
+    args = build_parser().parse_args(
+        [
+            "prepare",
+            "data/raw/wisard-full",
+            "--collection",
+            "220109_Baker_Enterprise_1",
+            "--collection",
+            "210417_MtErie_Enterprise_0005",
+        ]
+    )
+
+    assert args.collection == [
+        "220109_Baker_Enterprise_1",
+        "210417_MtErie_Enterprise_0005",
+    ]
 
 
 def test_detection_command_parses() -> None:

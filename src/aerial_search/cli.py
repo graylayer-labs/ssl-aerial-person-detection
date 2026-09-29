@@ -8,7 +8,11 @@ from dataclasses import asdict
 from pathlib import Path
 
 from aerial_search.data.fetch import WISARD_FULL, WISARD_SAMPLE, fetch_dataset
-from aerial_search.data.wisard import prepare_manifests
+from aerial_search.data.wisard import (
+    WISARD_COLLECTIONS,
+    prepare_manifests,
+    select_collections,
+)
 
 DATASETS = {WISARD_SAMPLE.name: WISARD_SAMPLE, WISARD_FULL.name: WISARD_FULL}
 
@@ -72,6 +76,12 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument(
         "--output", type=Path, default=Path("data/manifests/wisard-sample")
     )
+    prepare.add_argument(
+        "--collection",
+        action="append",
+        metavar="ID",
+        help="prepare only this collection (repeat for several); default: all",
+    )
 
     train = subcommands.add_parser("train-ssl", help="run the paired SSL experiment")
     train.add_argument("--data-root", type=Path, default=Path("data/raw/wisard-sample"))
@@ -112,7 +122,12 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "prepare":
-        counts = prepare_manifests(args.source, args.output)
+        collections = (
+            select_collections(args.collection)
+            if args.collection
+            else WISARD_COLLECTIONS
+        )
+        counts = prepare_manifests(args.source, args.output, collections=collections)
         print(", ".join(f"{name}: {count}" for name, count in counts.items()))
         return
 
