@@ -42,14 +42,6 @@ of the dataset, which [#7] later removed. The 53% is unaffected
 
 **The fixed rule** ([pairing review][pairing-review]):
 
-```mermaid
-flowchart LR
-    A[Listed clip pair<br/>VIS clip n, IR clip n+1] --> B[Frame i of VIS<br/>with frame i + offset of IR]
-    B --> C{95% of frames<br/>found a partner?}
-    C -- no --> D[Stop with an error]
-    C -- yes --> E[Pair]
-```
-
 - Only 17 listed directory pairs are paired. The camera writes the RGB and
   thermal video of one recording as consecutive clip numbers, so
   `..._VIS_0003` goes with `..._IR_0004`.
@@ -122,23 +114,21 @@ Wrote 9,096 labelled frames to rgb_labelled.jsonl
 Wrote 9,048 labelled frames to thermal_labelled.jsonl
 ```
 
-Then draw the contact sheets and look at them. Seventeen JPEGs are written:
+Then draw the contact sheets (17 JPEGs) and look at them:
 
 ```bash
 uv run python tools/pairing_contact_sheets.py data/raw/wisard-full \
   data/manifests/wisard-full/all_pairs.jsonl outputs/pairing-check
 ```
 
-`data_quality.json`, written beside the manifests, lists every directory that
-was not paired and why.
+`data_quality.json`, beside the manifests, lists every directory not paired.
 
 ## What came after
 
-The second review of the fix found gaps that changed no number. [#39] closed
-them: a subset can no longer be mistaken for the full set, a label that is
-`nan` or `inf` raises, and clips with no labels appear in the box counts with
-zeros. The regenerated manifests had the same totals, 14,834 and 5,739
-([#39 handoff][i39-handoff]).
+The second review found gaps that changed no number. [#39] closed them: a
+subset cannot be mistaken for the full set, a `nan` or `inf` label raises, and
+unlabelled clips show zeros in the box counts. The regenerated manifests had
+the same totals, 14,834 and 5,739 ([#39 handoff][i39-handoff]).
 
 ## What we would do differently
 
