@@ -34,8 +34,30 @@ def test_prepare_takes_an_explicit_subset_of_collections() -> None:
     ]
 
 
+def test_folds_commands_take_the_raw_images_and_the_manifests() -> None:
+    parser = build_parser()
+    for command in ("folds", "check-folds"):
+        args = parser.parse_args(
+            [command, "data/raw/wisard-full", "data/manifests/wisard-full"]
+        )
+        assert args.command == command
+        assert str(args.source) == "data/raw/wisard-full"
+        assert str(args.manifests) == "data/manifests/wisard-full"
+
+
+def test_experiments_need_a_fold() -> None:
+    import pytest
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["train-ssl"])
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["train-detector", "rgb", "scratch"])
+
+
 def test_detection_command_parses() -> None:
-    args = build_parser().parse_args(["train-detector", "thermal", "ssl"])
+    args = build_parser().parse_args(
+        ["train-detector", "thermal", "ssl", "--fold", "220109_Baker"]
+    )
 
     assert args.command == "train-detector"
     assert args.modality == "thermal"
@@ -44,9 +66,14 @@ def test_detection_command_parses() -> None:
 
 def test_experiment_commands_accept_scratch_flag() -> None:
     parser = build_parser()
-    assert parser.parse_args(["train-ssl", "--scratch"]).scratch is True
-    assert parser.parse_args(["train-ssl"]).scratch is False
-    assert parser.parse_args(["train-detector", "rgb", "scratch", "--scratch"]).scratch
+    assert (
+        parser.parse_args(["train-ssl", "--fold", "220109_Baker", "--scratch"]).scratch
+        is True
+    )
+    assert parser.parse_args(["train-ssl", "--fold", "220109_Baker"]).scratch is False
+    assert parser.parse_args(
+        ["train-detector", "rgb", "scratch", "--fold", "220109_Baker", "--scratch"]
+    ).scratch
 
 
 def test_experiment_refuses_to_start_outside_a_git_repo(tmp_path, monkeypatch) -> None:
@@ -56,7 +83,7 @@ def test_experiment_refuses_to_start_outside_a_git_repo(tmp_path, monkeypatch) -
 
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit, match="refusing to start"):
-        main(["train-ssl"])
+        main(["train-ssl", "--fold", "220109_Baker"])
     assert not (tmp_path / "outputs").exists()
 
 
@@ -78,8 +105,10 @@ def _fake_repo(tmp_path, monkeypatch):
     monkeypatch.setattr(run_module, "_code_location", lambda: repo)
     manifests = tmp_path / "manifests"
     manifests.mkdir()
-    (manifests / "train.jsonl").write_text("{}\n")
-    (manifests / "validation.jsonl").write_text("{}\n")
+    view = manifests / "folds" / "220109_Baker" / "paired"
+    view.mkdir(parents=True)
+    (view / "train_100pct.jsonl").write_text("{}\n")
+    (view / "validation.jsonl").write_text("{}\n")
     return repo, manifests
 
 
@@ -111,7 +140,7 @@ def test_detector_calls_start_run_before_training(monkeypatch) -> None:
     monkeypatch.setattr(run_module, "start_run", refuse)
     monkeypatch.setattr(detection_experiment, "run_detection_experiment", train)
     with pytest.raises(SystemExit, match="refusing to start"):
-        cli.main(["train-detector", "rgb", "scratch"])
+        cli.main(["train-detector", "rgb", "scratch", "--fold", "220109_Baker"])
     assert calls == ["start_run"]
 
 
@@ -131,19 +160,32 @@ def test_ssl_run_writes_into_run_dir_and_completes(tmp_path, monkeypatch) -> Non
 
     def fake(data_root, manifests, output, **kwargs):
         seen["output"] = output
+        seen["manifests"] = manifests
         seen["seed"] = kwargs["seed"]
         return Result()
 
     monkeypatch.setattr(ssl_experiment, "run_experiment", fake)
-    cli.main(["train-ssl", "--manifests", str(manifests), "--run-name", "a"])
+    cli.main(
+        [
+            "train-ssl",
+            "--manifests",
+            str(manifests),
+            "--fold",
+            "220109_Baker",
+            "--run-name",
+            "a",
+        ]
+    )
     assert seen["output"] == repo / "outputs" / "a"
     data = json.loads((seen["output"] / "run.json").read_text())
     assert data["status"] == "completed"
     assert data["seed"] == seen["seed"]
+    assert (data["fold"], data["view"]) == ("220109_Baker", "paired")
     assert {i["path"] for i in data["inputs"]} == {
-        str(manifests / "train.jsonl"),
-        str(manifests / "validation.jsonl"),
+        str(manifests / "folds" / "220109_Baker" / "paired" / "train_100pct.jsonl"),
+        str(manifests / "folds" / "220109_Baker" / "paired" / "validation.jsonl"),
     }
+    assert seen["manifests"] == manifests / "folds" / "220109_Baker" / "paired"
 
 
 def test_failed_experiment_is_marked_failed(tmp_path, monkeypatch) -> None:
@@ -161,7 +203,17 @@ def test_failed_experiment_is_marked_failed(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr(ssl_experiment, "run_experiment", crash)
     with pytest.raises(RuntimeError):
-        cli.main(["train-ssl", "--manifests", str(manifests), "--run-name", "a"])
+        cli.main(
+            [
+                "train-ssl",
+                "--manifests",
+                str(manifests),
+                "--fold",
+                "220109_Baker",
+                "--run-name",
+                "a",
+            ]
+        )
     data = json.loads((repo / "outputs" / "a" / "run.json").read_text())
     assert data["status"] == "failed"
     assert data["error"]["type"] == "RuntimeError"
@@ -185,6 +237,62 @@ def test_detector_gets_seed_and_run_dir(tmp_path, monkeypatch) -> None:
         return Result()
 
     monkeypatch.setattr(detection_experiment, "run_detection_experiment", fake)
-    cli.main(["train-detector", "rgb", "scratch", "--manifests", str(manifests)])
+    cli.main(
+        [
+            "train-detector",
+            "rgb",
+            "scratch",
+            "--manifests",
+            str(manifests),
+            "--fold",
+            "220109_Baker",
+        ]
+    )
     assert seen["output"] == repo / "outputs" / "detector-rgb-scratch"
     assert seen["seed"] == cli.SEED
+
+
+def test_detector_refuses_a_checkpoint_pretrained_in_another_fold(
+    tmp_path, monkeypatch
+) -> None:
+    import json
+
+    import pytest
+
+    from aerial_search import cli
+    from aerial_search.experiments import detection_experiment
+
+    repo, manifests = _fake_repo(tmp_path, monkeypatch)
+    parent = tmp_path / "ssl-mterie"
+    parent.mkdir()
+    (parent / "model.pt").write_text("weights")
+    (parent / "run.json").write_text(
+        json.dumps(
+            {
+                "run_name": "ssl-mterie",
+                "scratch": False,
+                "commit": "abc",
+                "status": "completed",
+                "fold": "210417_MtErie",
+                "view": "paired",
+            }
+        )
+    )
+    monkeypatch.setattr(
+        detection_experiment, "run_detection_experiment", lambda *a, **k: None
+    )
+    with pytest.raises(SystemExit, match="210417_MtErie.*220109_Baker"):
+        cli.main(
+            [
+                "train-detector",
+                "rgb",
+                "ssl",
+                "--manifests",
+                str(manifests),
+                "--fold",
+                "220109_Baker",
+                "--ssl-checkpoint",
+                str(parent / "model.pt"),
+            ]
+        )
+    assert not (repo / "outputs").exists()

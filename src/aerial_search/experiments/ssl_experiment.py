@@ -68,7 +68,7 @@ def run_experiment(
     random.seed(seed)
     torch.manual_seed(seed)
     device = get_device()
-    train_data = PairedImages(manifests / "train.jsonl", data_root, augment=True)
+    train_data = PairedImages(manifests / "train_100pct.jsonl", data_root, augment=True)
     validation_data = PairedImages(
         manifests / "validation.jsonl", data_root, augment=False
     )

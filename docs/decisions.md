@@ -2,6 +2,11 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
+- 2026-10-01 · chose leave-one-site-day-out folds over one fixed test split · four labelled site-days cannot spare several for a fixed test set, and the claim is about unseen site-days; results are per fold plus mean and spread. See `docs/site-folds-review.md` (#3).
+- 2026-10-01 · chose a 250-frame gap (50 s) between training and validation inside one clip over the 50 frames first proposed · at 50 frames Baker and Carnation frames are still far more alike than random frames of the clip; by 250 they are not (`tools/frame_similarity_lags.py`). Costs 250 frames each of Baker and Carnation 0023.
+- 2026-10-01 · chose to hold out the smallest labelled clip of a site-day as validation over a fixed fraction of frames · validation by whole clip never puts neighbouring frames on both sides; the smallest clip costs training the least.
+- 2026-10-01 · chose label-fraction subsets as nested prefixes of seeded 10-frame blocks, interleaved across site-days, over frames sampled at random · random frames spread over every scene, which is not a label shortage; prefixes make the fractions nested by construction.
+- 2026-10-01 · chose one unlabelled pool per fold that leaves out the test site-day and every view's validation frames over a pool per view · one self-supervised model then serves all three views, and validation stays unseen by pretraining.
 - 2026-10-01 · chose DINOv3, frozen, as the starting backbone over DINOv2, V-JEPA 2.1, or remote-sensing models · newest strong dense features, many sizes, a satellite variant, and a licence that allows this use. See `docs/model-and-dataset-review.md`.
 - 2026-10-01 · chose to test thermal on the frozen RGB backbone first, with a learned stem as an ablation, over building the stem in from the start · the paper cited for the large thermal gap shows a 2-point gap in its current version.
 - 2026-09-29 · chose one local copy plus S3, fetched when needed, over mounting S3 as a drive · the mount tools for macOS either need system security reduced or are unproven on this version, and raw images are read once per model, which a mount does not help. See #7.

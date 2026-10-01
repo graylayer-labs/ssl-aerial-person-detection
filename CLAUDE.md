@@ -263,6 +263,8 @@ cameras drift. Regenerate the manifests and the contact sheets with:
 
 ```bash
 uv run aerial-search prepare data/raw/wisard-full --output data/manifests/wisard-full
+uv run aerial-search folds data/raw/wisard-full data/manifests/wisard-full
+uv run aerial-search check-folds data/raw/wisard-full data/manifests/wisard-full
 uv run python tools/pairing_contact_sheets.py data/raw/wisard-full \
   data/manifests/wisard-full/all_pairs.jsonl outputs/pairing-check
 ```
@@ -335,8 +337,9 @@ to its issue or PR. No version numbers.
   non-editable install. Tracked files hidden by skip-worktree or
   assume-unchanged also refuse a normal run. `run.json` records the SHA-256
   of every input (manifests, checkpoint). A normal run given
-  `--ssl-checkpoint` needs a `run.json` beside it with `scratch` false and
-  `status` completed; the parent's name and commit are recorded.
+  `--ssl-checkpoint` needs a `run.json` beside it with `scratch` false,
+  `status` completed, and the same `fold` and `view`; the parent's name and
+  commit are recorded.
 - A normal run is quotable only if its `run.json` has `"status": "completed"`.
   `"started"` means it crashed or is still running; `"failed"` records the
   error. Known limit: files ignored through `.git/info/exclude` are not seen.
@@ -345,8 +348,12 @@ to its issue or PR. No version numbers.
   config. If a number cannot be traced, remove it.
 - Report negative results. State what was expected, what happened, and the
   most likely reason.
-- Always compare against a baseline on a held-out split. Splits are by flight,
-  never by frame, because neighbouring frames are near-duplicates.
+- Always compare against a baseline on a held-out split. Splits are by
+  site-day (every clip from one site on one date), never by clip or frame,
+  because neighbouring frames are near-duplicates and clips from one site-day
+  share terrain and people. Each labelled site-day is the test set of one
+  fold. Report every result per fold and as the mean and spread over the
+  folds, never as one pooled number. See `docs/site-folds-review.md`.
 - Every published table or figure that shows `ap_iou25` shows `ap_iou50`
   beside it. The lower threshold is the primary metric for tiny people, and
   the reader must be able to see how much it contributes. See

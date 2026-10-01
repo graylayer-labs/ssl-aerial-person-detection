@@ -8,6 +8,16 @@ from dataclasses import asdict
 from pathlib import Path
 
 from aerial_search.data.fetch import WISARD_FULL, WISARD_SAMPLE, fetch_dataset
+from aerial_search.data.folds import SEED as FOLD_SEED
+from aerial_search.data.folds import (
+    VALIDATION,
+    ImageSize,
+    check_folds,
+    fold_table,
+    train_file,
+    view_dir,
+    write_folds,
+)
 from aerial_search.data.wisard import (
     WISARD_COLLECTIONS,
     prepare_manifests,
@@ -18,6 +28,7 @@ DATASETS = {WISARD_SAMPLE.name: WISARD_SAMPLE, WISARD_FULL.name: WISARD_FULL}
 
 
 SEED = 7  # both experiments seed with 7; recorded in run.json
+VIEW = "paired"  # both experiments read the fold's paired-view manifests
 
 
 def _add_run_flags(parser: argparse.ArgumentParser) -> None:
@@ -40,7 +51,8 @@ def _start_run(args: argparse.Namespace, default_name: str) -> Path:
     from aerial_search.run import ProvenanceError, start_run
 
     config = {k: v for k, v in vars(args).items() if k not in {"scratch", "run_name"}}
-    inputs = [args.manifests / "train.jsonl", args.manifests / "validation.jsonl"]
+    view = _fold_manifests(args)
+    inputs = [view / train_file(100), view / VALIDATION]
     try:
         return start_run(
             args.run_name or default_name,
@@ -50,9 +62,36 @@ def _start_run(args: argparse.Namespace, default_name: str) -> Path:
             scratch=args.scratch,
             inputs=inputs,
             checkpoint=getattr(args, "ssl_checkpoint", None),
+            fold=args.fold,
+            view=VIEW,
         )
     except ProvenanceError as error:
         raise SystemExit(f"refusing to start: {error}") from error
+
+
+def _fold_manifests(args: argparse.Namespace) -> Path:
+    """The paired-view manifests of the fold named by --fold."""
+    return view_dir(args.manifests / "folds", args.fold, VIEW)
+
+
+def _image_size(source: Path) -> ImageSize:
+    from PIL import Image
+
+    def size(path: str) -> tuple[int, int]:
+        with Image.open(source / path) as image:
+            return image.size
+
+    return size
+
+
+def _add_fold_flag(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--fold",
+        required=True,
+        metavar="SITE_DAY",
+        help="test site-day of the fold to train on, e.g. 220109_Baker; reads "
+        "<manifests>/folds/<SITE_DAY>/paired/",
+    )
 
 
 def _finish(directory: Path, error: BaseException | None = None) -> None:
@@ -83,6 +122,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="prepare only this collection (repeat for several); default: all",
     )
 
+    folds = subcommands.add_parser(
+        "folds", help="write leave-one-site-day-out folds to <manifests>/folds"
+    )
+    check = subcommands.add_parser(
+        "check-folds", help="check <manifests>/folds for leaks between splits"
+    )
+    for command in (folds, check):
+        command.add_argument("source", type=Path, help="raw images, for image sizes")
+        command.add_argument("manifests", type=Path, help="output of prepare")
+    folds.add_argument("--seed", type=int, default=FOLD_SEED)
+
     train = subcommands.add_parser("train-ssl", help="run the paired SSL experiment")
     train.add_argument("--data-root", type=Path, default=Path("data/raw/wisard-sample"))
     train.add_argument(
@@ -90,6 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train.add_argument("--epochs", type=int, default=10)
     train.add_argument("--batch-size", type=int, default=16)
+    _add_fold_flag(train)
     _add_run_flags(train)
 
     detect = subcommands.add_parser("train-detector", help="run a detection baseline")
@@ -103,6 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     detect.add_argument("--epochs", type=int, default=5)
     detect.add_argument("--ssl-checkpoint", type=Path)
+    _add_fold_flag(detect)
     _add_run_flags(detect)
 
     return parser
@@ -131,6 +183,28 @@ def main(argv: list[str] | None = None) -> None:
         print(", ".join(f"{name}: {count}" for name, count in counts.items()))
         return
 
+    if args.command == "folds":
+        summary = write_folds(
+            args.manifests,
+            args.manifests / "folds",
+            _image_size(args.source),
+            seed=args.seed,
+        )
+        print(fold_table(summary))
+        return
+
+    if args.command == "check-folds":
+        report = check_folds(
+            args.manifests, args.manifests / "folds", _image_size(args.source)
+        )
+        for line in report.lines:
+            print(f"OK   {line}" if not report.problems else f"     {line}")
+        for problem in report.problems:
+            print(f"FAIL {problem}")
+        if report.problems:
+            raise SystemExit(1)
+        return
+
     if args.command == "train-detector":
         directory = _start_run(args, f"detector-{args.modality}-{args.initialization}")
         from aerial_search.experiments.detection_experiment import (
@@ -140,7 +214,7 @@ def main(argv: list[str] | None = None) -> None:
         try:
             result = run_detection_experiment(
                 args.data_root,
-                args.manifests,
+                _fold_manifests(args),
                 directory,
                 modality=args.modality,
                 initialization=args.initialization,
@@ -161,7 +235,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         result = run_experiment(
             args.data_root,
-            args.manifests,
+            _fold_manifests(args),
             directory,
             epochs=args.epochs,
             batch_size=args.batch_size,
