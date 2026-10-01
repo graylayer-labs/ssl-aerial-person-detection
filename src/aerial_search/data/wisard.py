@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
@@ -345,6 +346,8 @@ def load_boxes(path: Path, stats: dict[str, int] | None = None) -> list[Bounding
         if len(fields) != 5 or fields[0] != "0":
             raise ValueError(f"Invalid person annotation at {path}:{line_number}")
         x, y, w, h = (float(v) for v in fields[1:])
+        if not all(math.isfinite(v) for v in (x, y, w, h)):
+            raise ValueError(f"Invalid person annotation at {path}:{line_number}")
         x0, x1 = max(0.0, x - w / 2), min(1.0, x + w / 2)
         y0, y1 = max(0.0, y - h / 2), min(1.0, y + h / 2)
         overshoot = max(-(x - w / 2), x + w / 2 - 1, -(y - h / 2), y + h / 2 - 1)
