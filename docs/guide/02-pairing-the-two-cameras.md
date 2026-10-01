@@ -1,6 +1,6 @@
 # 2. Pairing the two cameras
 
-*Last updated 2026-10-01 from issues [#1], [#2] and [#39].*
+*Last updated 2026-10-01 from issues [#1], [#2], [#38] and [#39].*
 
 ## What we set out to do
 
@@ -104,8 +104,10 @@ On a clone with the dataset (chapter 1):
 uv run aerial-search prepare data/raw/wisard-full --output data/manifests/wisard-full
 ```
 
-Expected output, which we reproduced on 2026-10-01 from a branch (a check of
-the commands, not a quotable run):
+A normal `prepare` is refused from a dirty tree or a commit off `origin/main`
+and checks the raw files against the pinned list first (chapter 5). Expected
+output. We reproduced it on 2026-10-01 from a branch, with `--scratch` and an
+output path outside the repository: a check of the command, not a quotable run.
 
 ```text
 Wrote 14,834 pairs to all_pairs.jsonl
@@ -138,8 +140,9 @@ the same totals, 14,834 and 5,739 ([#39 handoff][i39-handoff]).
   two directories share 95% of their frame numbers, passed 106 of the 115
   wrong ones in its first form ([#2 handoff][i2-handoff]).
 - **Record the commit when the manifests are made.** `prepare` did not, and
-  the lead wrote it down by hand ([#2 handoff][i2-handoff]). Issue [#38] covers
-  it and is open.
+  the lead wrote it down by hand ([#2 handoff][i2-handoff]). It now records
+  its commit and refuses a dirty tree or a commit off `origin/main`, since
+  [#38] ([CLAUDE.md](../../CLAUDE.md)).
 - **Check the labels too.** Some visible people have no box ([#2 handoff][i2-handoff]).
   A first-pass estimate, by an agent on 99 frames per camera, found an unboxed
   person in 1.1% of the RGB frames it was sure about (95% interval 0.2 to 6.1)

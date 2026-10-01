@@ -1,8 +1,8 @@
 # 5. Making runs and records traceable
 
 *Last updated 2026-10-01 from issues [#20], [#22], [#23], [#28], [#29], [#30]
-and [#38]. Issue #38 is open, so its part of this chapter is a plan, not a
-result.*
+and [#38]. Issue #38 has no closing handoff comment yet, so its part of this
+chapter rests on `CLAUDE.md`, the changelog and its issue text.*
 
 ## What we set out to do
 
@@ -39,12 +39,19 @@ added that last check itself, because it was a few lines ([#23 handoff][i23-hand
 pretraining in the MtErie fold has seen Baker ([folds review][folds-review],
 [#3 handoff][i3-handoff]).
 
-**The data trail is not finished.** A run records a hash of each manifest. It
-records nothing about the images they point to ([#38]). The dataset exists once
-on the laptop and once in S3, with versioning on, and an AWS role that can
-write but never delete ([#7 actions][i7-actions]). Issue [#38] is open: it asks
-for a checksum list of the dataset, a command that checks a copy against it,
-and `prepare` recording the commit it ran from. None of that exists yet.
+**A run could not say which data it used, until #38.** The run module
+recorded a hash of each manifest and nothing about the images they point to
+([#38]). The dataset exists once on the laptop and once in S3, with versioning
+on, and an AWS role that can write but never delete ([#7 actions][i7-actions]).
+PR [#47] pinned it: a committed list of 100,794 files with size and SHA-256
+(3.9 MB gzipped, root hash `6e5e5d55...75ed`). A normal `prepare` checks the
+directories it reads against the list and refuses on any difference. A normal
+run re-checks the directories its manifests reference, and `run.json` records
+what was verified. `prepare` records its own commit and refuses a dirty tree or
+a commit off `origin/main`. `aerial-search check-data` names every changed,
+missing or added file ([changelog](../../CHANGELOG.md), [CLAUDE.md](../../CLAUDE.md)).
+It chose a per-file list over per-directory hashes, because a check must name
+every file that differs ([decisions](../decisions.md)).
 
 **The working record needed the same care.** What was found, and what we did:
 
@@ -82,8 +89,9 @@ and `prepare` recording the commit it ran from. None of that exists yet.
 
 ## How to reproduce
 
-You cannot run a real experiment yet. No training run has gone through the
-module ([#23 handoff][i23-handoff]). You can watch it refuse. On 2026-10-01,
+You cannot run a real experiment yet. No training run had gone through the
+module when [#23] closed ([#23 handoff][i23-handoff]). You can watch it
+refuse. On 2026-10-01,
 from a branch with a dirty tree, then from a clean tree not on `main`:
 
 ```bash
@@ -95,6 +103,16 @@ uv run aerial-search train-ssl --fold 220109_Baker --run-name guide-check \
 refusing to start: the working tree has uncommitted changes (including untracked files not in .gitignore). Commit them, or pass --scratch:
 refusing to start: HEAD <sha> is not on origin/main. Merge it first, or pass --scratch. If it was merged recently, a `git fetch` may be needed.
 ```
+
+To check the data against the pinned list:
+
+```bash
+uv run aerial-search check-data data/raw/wisard-full
+```
+
+On 2026-10-01 it printed `OK   data/raw/wisard-full matches ... (root hash
+6e5e5d554c4be119f15bb636049800788904f3a2e2759cabce402c676d1575ed)` in about 20
+seconds. `CLAUDE.md` says hashing all of it takes about 25.
 
 The first message is shown without the list of changed files that follows it.
 Both runs wrote nothing under `outputs/`. The manifests are those of chapter 4.
@@ -112,9 +130,10 @@ uv run pytest tests/test_run.py
   recorded" would have caught all three ([#23 handoff][i23-handoff]).
 - **Check the instructions as you check code.** Cold-start tests and audits
   found gaps the authors could not see ([#20 handoff][i20-handoff]).
-- **Known limits.** Files ignored through `.git/info/exclude` are not seen by
-  the clean-tree check, raw images are not hashed, and the command line
-  imports `torch` before it refuses ([#23 handoff][i23-handoff]).
+- **Known limits** when [#23] closed ([#23 handoff][i23-handoff]): files
+  ignored through `.git/info/exclude` are not seen by the clean-tree check,
+  and the command line imports `torch` before it refuses. Raw images were not
+  hashed then; since [#47] they are checked against the pinned list.
 
 [#20]: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/20
 [#22]: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/22
@@ -122,6 +141,7 @@ uv run pytest tests/test_run.py
 [#28]: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/28
 [#29]: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/29
 [#30]: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/30
+[#47]: https://github.com/graylayer-labs/ssl-aerial-person-detection/pull/47
 [#38]: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/38
 [epic]: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/13
 [i3-handoff]: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/3#issuecomment-5936845727

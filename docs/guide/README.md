@@ -34,10 +34,10 @@ a clone of the repository and the WiSARD dataset (chapter 1).
 | # | Chapter | Last updated | From issues |
 |---|---|---|---|
 | 1 | [The problem and the data](01-the-problem-and-the-data.md) | 2026-10-01 | #1, #2, #6, #7, #10 |
-| 2 | [Pairing the two cameras](02-pairing-the-two-cameras.md) | 2026-10-01 | #1, #2, #39 |
+| 2 | [Pairing the two cameras](02-pairing-the-two-cameras.md) | 2026-10-01 | #1, #2, #38, #39 |
 | 3 | [Scoring tiny people](03-scoring-tiny-people.md) | 2026-10-01 | #4 |
 | 4 | [Splitting by site-day](04-splitting-by-site-day.md) | 2026-10-01 | #3, #39, #45 |
-| 5 | [Making runs and records traceable](05-making-runs-traceable.md) | 2026-10-01 | #20, #22, #23, #28, #29, #30, #38 (open) |
+| 5 | [Making runs and records traceable](05-making-runs-traceable.md) | 2026-10-01 | #20, #22, #23, #28, #29, #30, #38 |
 
 Closed issues with no chapter of their own yet: #5, the choice of starting
 model and datasets, whose evidence is in

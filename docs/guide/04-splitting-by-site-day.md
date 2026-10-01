@@ -129,7 +129,8 @@ uv run aerial-search folds data/raw/wisard-full data/manifests/wisard-full
 uv run aerial-search check-folds data/raw/wisard-full data/manifests/wisard-full
 ```
 
-On 2026-10-01, from a branch, `check-folds` printed the seven lines above
+On 2026-10-01, from a branch, on manifests made with `prepare --scratch`,
+`check-folds` printed the seven lines above
 after one more, `OK   source manifests: full`. A run takes a fold as
 `--fold 220109_Baker`, for example. See chapter 5.
 
