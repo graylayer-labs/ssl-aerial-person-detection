@@ -7,6 +7,7 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+from aerial_search.data import checksums
 from aerial_search.data.fetch import WISARD_FULL, WISARD_SAMPLE, fetch_dataset
 from aerial_search.data.folds import SEED as FOLD_SEED
 from aerial_search.data.folds import (
@@ -64,6 +65,8 @@ def _start_run(args: argparse.Namespace, default_name: str) -> Path:
             checkpoint=getattr(args, "ssl_checkpoint", None),
             fold=args.fold,
             view=VIEW,
+            manifests=args.manifests,
+            data_root=args.data_root,
         )
     except ProvenanceError as error:
         raise SystemExit(f"refusing to start: {error}") from error
@@ -110,6 +113,41 @@ def build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--data-root", type=Path, default=Path("data"))
     fetch.add_argument("--no-extract", action="store_true")
 
+    checksum = subcommands.add_parser(
+        "checksum", help="write the checksum list of a dataset directory"
+    )
+    checksum.add_argument("source", type=Path, help="e.g. data/raw/wisard-full")
+    checksum.add_argument(
+        "--output",
+        type=Path,
+        default=checksums.committed_path(),
+        help="default: the committed list, under src/aerial_search/data/checksums/",
+    )
+    checksum.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing list; this re-pins the dataset",
+    )
+    check_data = subcommands.add_parser(
+        "check-data", help="check a dataset directory against the committed list"
+    )
+    check_data.add_argument("source", type=Path, help="e.g. data/raw/wisard-full")
+    check_data.add_argument("--list", type=Path, default=checksums.committed_path())
+    check_data.add_argument(
+        "--directory",
+        action="append",
+        metavar="NAME",
+        help="check only this directory (repeat for several); default: all",
+    )
+    fetch_directory = subcommands.add_parser(
+        "fetch-directory",
+        help="fetch a WiSARD directory from S3 if absent, then verify it",
+    )
+    fetch_directory.add_argument("name")
+    fetch_directory.add_argument(
+        "--data-root", type=Path, default=Path("data/raw/wisard-full")
+    )
+
     prepare = subcommands.add_parser("prepare", help="prepare WiSARD manifests")
     prepare.add_argument("source", type=Path)
     prepare.add_argument(
@@ -120,6 +158,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         metavar="ID",
         help="prepare only this collection (repeat for several); default: all",
+    )
+
+    prepare.add_argument(
+        "--scratch",
+        action="store_true",
+        help="debugging: allowed from a dirty tree or off main, skips the data "
+        "check; never quotable",
+    )
+    prepare.add_argument(
+        "--force",
+        action="store_true",
+        help="let a scratch prepare overwrite manifests that are not scratch",
     )
 
     folds = subcommands.add_parser(
@@ -173,13 +223,72 @@ def main(argv: list[str] | None = None) -> None:
         print(destination)
         return
 
+    if args.command == "checksum":
+        if args.output.exists() and not args.force:
+            raise SystemExit(
+                f"refusing to overwrite {args.output}: writing it re-pins the "
+                "dataset. Pass --force if that is intended."
+            )
+        entries = checksums.hash_tree(args.source, progress=checksums.print_progress)
+        checksums.write_list(entries, args.output)
+        print(f"{len(entries):,} files, root hash {checksums.root_hash(entries)}")
+        print(args.output)
+        return
+
+    if args.command == "check-data":
+        expected = checksums.read_list(args.list)
+        differences = checksums.check_tree(
+            args.source, expected, args.directory, checksums.print_progress
+        )
+        if differences:
+            for line in differences.lines():
+                print(line)
+            print(f"FAIL {args.source} differs from {args.list}")
+            raise SystemExit(1)
+        root = checksums.root_hash(expected)
+        print(f"OK   {args.source} matches {args.list} (root hash {root})")
+        return
+
+    if args.command == "fetch-directory":
+        try:
+            print(checksums.ensure_directory(args.name, args.data_root))
+        except (
+            checksums.DataMismatchError,
+            checksums.FetchError,
+            ValueError,
+        ) as error:
+            raise SystemExit(f"FAIL {error}") from error
+        return
+
     if args.command == "prepare":
         collections = (
             select_collections(args.collection)
             if args.collection
             else WISARD_COLLECTIONS
         )
-        counts = prepare_manifests(args.source, args.output, collections=collections)
+        from aerial_search import run
+
+        try:
+            state = run.code_state(scratch=args.scratch)
+        except run.ProvenanceError as error:
+            raise SystemExit(f"refusing to prepare: {error}") from error
+        provenance: dict[str, object] = {
+            "commit": state["commit"],
+            "scratch": args.scratch,
+        }
+        if args.scratch:
+            provenance["dirty"] = state.get("dirty")
+        try:
+            counts = prepare_manifests(
+                args.source,
+                args.output,
+                collections=collections,
+                provenance=provenance,
+                verify=not args.scratch,
+                force=args.force,
+            )
+        except (checksums.DataMismatchError, ValueError) as error:
+            raise SystemExit(f"refusing to prepare: {error}") from error
         print(", ".join(f"{name}: {count}" for name, count in counts.items()))
         return
 

@@ -9,6 +9,15 @@ each links to the issue or pull request that holds the detail.
 ### 2026-10-01
 
 **Added**
+- The WiSARD dataset is pinned by a committed list of 100,794 files with
+  size and SHA-256 (3.9 MB gzipped, root hash `6e5e5d55...75ed`). A normal
+  `prepare` verifies the directories it reads against the list before
+  writing, and a normal run re-verifies the directories its manifests
+  reference before starting; `run.json` records what was verified. Manifests
+  from `prepare --scratch` or from unpinned data cannot start a normal run.
+  `aerial-search check-data` names every changed, missing or added file, and
+  a directory fetched from S3 is verified before it is kept.
+  ([#38](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/38))
 - A follow-along guide to how the project was built, in `docs/guide/`, with five
   chapters on the first milestone, and a `guide-writer` agent and `/guide`
   skill that keep it current from closed issues. Every number in it links to
@@ -16,15 +25,6 @@ each links to the issue or pull request that holds the detail.
   with `/blog` for the owner to edit; none is written yet.
   ([#50](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/50),
   [guide](docs/guide/README.md))
-
-**Found**
-- First-pass estimate of unlabelled visible people (agent review, 99 frames
-  per camera, 21 frames still unsure and awaiting the owner): about 1% of
-  RGB frames (95% interval 0.2 to 6.1%) and 2% of thermal frames (0.6 to 7.9%)
-  have an unboxed person, but the thermal misses sit in one clip,
-  `210924_FHL_Enterprise_0403`, whose frames are mostly empty-labelled.
-  ([#37](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/37),
-  [review](docs/label-completeness-review.md))
 
 **Changed**
 - WiSARD is split by site-day, leaving one out: each of the four labelled
@@ -41,6 +41,13 @@ each links to the issue or pull request that holds the detail.
   [review](docs/site-folds-review.md))
 
 **Found**
+- First-pass estimate of unlabelled visible people (agent review, 99 frames
+  per camera, 21 frames still unsure and awaiting the owner): about 1% of
+  RGB frames (95% interval 0.2 to 6.1%) and 2% of thermal frames (0.6 to 7.9%)
+  have an unboxed person, but the thermal misses sit in one clip,
+  `210924_FHL_Enterprise_0403`, whose frames are mostly empty-labelled.
+  ([#37](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/37),
+  [review](docs/label-completeness-review.md))
 - Frames 10 seconds apart in one clip are still far more alike than random
   frames of that clip; it takes about 50 seconds (250 frames). A split inside
   one clip now drops 250 frames between training and validation.

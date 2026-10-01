@@ -42,6 +42,8 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
+from aerial_search.data import checksums
+
 MAIN_REF = "refs/remotes/origin/main"
 SCRATCH_PREFIX = "scratch-"
 PACKAGES = ("torch", "torchvision")
@@ -212,30 +214,8 @@ def _parent(
     return parent
 
 
-def start_run(
-    name: str,
-    config: dict[str, Any],
-    seed: int,
-    *,
-    device: str,
-    scratch: bool = False,
-    argv: list[str] | None = None,
-    repo: Path | None = None,
-    inputs: Sequence[Path] = (),
-    checkpoint: Path | None = None,
-    fold: str | None = None,
-    view: str | None = None,
-) -> Path:
-    """Check provenance, create `outputs/[scratch-]<name>/`, write `run.json`.
-
-    `repo` is for tests; by default the repository holding this module is
-    used. `fold` and `view` name the fold's test site-day and label view, and
-    must match those of the checkpoint's run. Returns the run directory, the
-    only place the experiment may write.
-    Raises `ProvenanceError` if a normal run is not from a clean tree on main,
-    if git cannot tell, if a checkpoint has no normal parent run, or if the
-    directory exists.
-    """
+def _check_code(scratch: bool, repo: Path | None) -> tuple[Path, dict[str, Any]]:
+    """The repository root and its state; a normal run must be clean, on main."""
     start = (repo or _code_location()).resolve()
     state: dict[str, Any]
     try:
@@ -274,6 +254,115 @@ def start_run(
                 "or pass --scratch. If it was merged recently, a `git fetch` "
                 "may be needed."
             )
+    return root, state
+
+
+def _verify_data(
+    scratch: bool,
+    manifests: Path | None,
+    data_root: Path | None,
+    pinned: Sequence[checksums.Entry] | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str | None]:
+    """Read the manifests' data record; a normal run re-verifies the data."""
+    record_path = manifests / "data_quality.json" if manifests else None
+    try:
+        if record_path is None:
+            raise ValueError("no manifests directory was given")
+        quality = json.loads(record_path.read_text())
+        data, provenance = quality.get("data"), quality.get("provenance")
+    except (OSError, ValueError, AttributeError) as error:
+        if scratch:
+            return None, None, None
+        raise ProvenanceError(
+            f"cannot read the manifests' data_quality.json ({record_path}: "
+            f"{error}); a normal run needs manifests from a normal `prepare`. "
+            "Pass --scratch to debug."
+        ) from None
+    if scratch:
+        return data, provenance, None
+    if not isinstance(provenance, dict):
+        raise ProvenanceError(
+            f"{record_path} has no provenance record; regenerate the manifests "
+            "with the current `aerial-search prepare`."
+        )
+    if provenance.get("scratch") is not False:
+        raise ProvenanceError(
+            f"{record_path} comes from a scratch `prepare` (provenance.scratch "
+            "is not false); regenerate the manifests from a clean tree on main, "
+            "or pass --scratch."
+        )
+    if not isinstance(data, dict) or data.get("verified") is not True:
+        raise ProvenanceError(
+            f"{record_path} says its data was not verified against the pinned "
+            "list (data.verified is not true); run `prepare` on the pinned dataset."
+        )
+    if data_root is None:
+        raise ProvenanceError("a normal run needs the data root to verify it")
+    entries = list(pinned) if pinned is not None else checksums.committed_list()
+    try:
+        difference = checksums.verify_directories(
+            data_root, data.get("directories", []), entries
+        )
+    except ValueError as error:
+        raise ProvenanceError(str(error)) from None
+    if difference:
+        raise ProvenanceError(
+            f"{data_root} differs from the pinned list:\n"
+            + "\n".join(difference.lines())
+        )
+    return data, provenance, datetime.now(UTC).isoformat()
+
+
+def code_state(*, scratch: bool, repo: Path | None = None) -> dict[str, Any]:
+    """Commit and cleanliness of the running code, refusing like `start_run`.
+
+    For other commands that write results meant for quoting, such as
+    `aerial-search prepare`. Raises `ProvenanceError` unless `scratch` or the
+    tree is clean with HEAD on `origin/main`. Returns `commit`, `dirty`,
+    `hidden_changes`, `commit_on_main`, and `main_error` (or `git_error`).
+    """
+    return _check_code(scratch, repo)[1]
+
+
+def start_run(
+    name: str,
+    config: dict[str, Any],
+    seed: int,
+    *,
+    device: str,
+    scratch: bool = False,
+    argv: list[str] | None = None,
+    repo: Path | None = None,
+    inputs: Sequence[Path] = (),
+    checkpoint: Path | None = None,
+    fold: str | None = None,
+    view: str | None = None,
+    manifests: Path | None = None,
+    data_root: Path | None = None,
+    pinned: Sequence[checksums.Entry] | None = None,
+) -> Path:
+    """Check provenance, create `outputs/[scratch-]<name>/`, write `run.json`.
+
+    `repo` is for tests; by default the repository holding this module is
+    used. `fold` and `view` name the fold's test site-day and label view, and
+    must match those of the checkpoint's run. Returns the run directory, the
+    only place the experiment may write.
+    Raises `ProvenanceError` if a normal run is not from a clean tree on main,
+    if git cannot tell, if a checkpoint has no normal parent run, or if the
+    directory exists.
+
+    `manifests` is the directory `prepare` wrote and `data_root` the raw data
+    it read. A normal run needs `manifests/data_quality.json` from a normal
+    `prepare` that verified its data, and re-verifies the directories it
+    names under `data_root` against the pinned list (`pinned`, default the
+    committed list) before starting; any difference or missing record raises
+    `ProvenanceError`. `run.json` gets the record's `data` and `provenance`
+    and `data_verified_at`. A scratch run skips the verification and says so.
+    """
+    root, state = _check_code(scratch, repo)
+    data_record, manifest_provenance, verified_at = _verify_data(
+        scratch, manifests, data_root, pinned
+    )
 
     input_paths = [*inputs, *([checkpoint] if checkpoint else [])]
     recorded_inputs = [
@@ -310,6 +399,10 @@ def start_run(
             "device": device,
         },
         "packages": _package_versions(),
+        "data": data_record,
+        "provenance": manifest_provenance,
+        "data_verified_at": verified_at,
+        "data_verification_skipped": scratch,
     }
     _write(directory, record)
     return directory

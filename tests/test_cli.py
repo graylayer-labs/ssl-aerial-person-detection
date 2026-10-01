@@ -1,3 +1,8 @@
+import json
+from pathlib import Path
+
+import pytest
+
 from aerial_search.cli import build_parser
 
 
@@ -105,6 +110,14 @@ def _fake_repo(tmp_path, monkeypatch):
     monkeypatch.setattr(run_module, "_code_location", lambda: repo)
     manifests = tmp_path / "manifests"
     manifests.mkdir()
+    (manifests / "data_quality.json").write_text(
+        json.dumps(
+            {
+                "provenance": {"commit": "abc", "scratch": False},
+                "data": {"verified": True, "directories": [], "root_hash": "r"},
+            }
+        )
+    )
     view = manifests / "folds" / "220109_Baker" / "paired"
     view.mkdir(parents=True)
     (view / "train_100pct.jsonl").write_text("{}\n")
@@ -333,3 +346,117 @@ def test_check_folds_prints_only_the_failures_of_a_failing_check(
 
     assert code == 1
     assert out.splitlines() == ["FAIL train holds test"]
+
+
+def test_checksum_then_check_data_reports_every_difference(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from aerial_search.cli import main
+
+    source = tmp_path / "raw"
+    (source / "a_0001").mkdir(parents=True)
+    (source / "a_0001" / "x.jpg").write_bytes(b"xx")
+    (source / "a_0001" / "y.jpg").write_bytes(b"yy")
+    pinned = tmp_path / "pin.tsv.gz"
+
+    main(["checksum", str(source), "--output", str(pinned)])
+    main(["check-data", str(source), "--list", str(pinned)])
+    assert "OK" in capsys.readouterr().out
+
+    (source / "a_0001" / "x.jpg").write_bytes(b"XX")
+    (source / "a_0001" / "y.jpg").unlink()
+    (source / "a_0001" / "z.jpg").write_bytes(b"z")
+    with pytest.raises(SystemExit) as raised:
+        main(["check-data", str(source), "--list", str(pinned)])
+    assert raised.value.code == 1
+    out = capsys.readouterr().out
+    assert "changed a_0001/x.jpg" in out
+    assert "missing a_0001/y.jpg" in out
+    assert "added   a_0001/z.jpg" in out
+
+
+def _strict_code_state(*, scratch: bool, repo: Path | None = None) -> dict:
+    """Refuses a normal run, as a dirty tree would; allows scratch."""
+    from aerial_search import run
+
+    if not scratch:
+        raise run.ProvenanceError("the working tree has uncommitted changes")
+    return {"commit": "abc", "dirty": " M x"}
+
+
+def test_prepare_refuses_a_dirty_tree_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import aerial_search.cli as cli
+    from aerial_search import run
+
+    monkeypatch.setattr(run, "code_state", _strict_code_state)
+    monkeypatch.setattr(
+        cli, "prepare_manifests", lambda *a, **k: pytest.fail("must not prepare")
+    )
+    with pytest.raises(SystemExit, match="uncommitted"):
+        cli.main(["prepare", str(tmp_path), "--output", str(tmp_path / "out")])
+
+
+def test_prepare_scratch_records_scratch_and_skips_the_data_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import aerial_search.cli as cli
+    from aerial_search import run
+
+    monkeypatch.setattr(run, "code_state", _strict_code_state)
+    seen: dict = {}
+
+    def fake_prepare(*args: object, **kwargs: object) -> dict[str, int]:
+        seen.update(kwargs)
+        return {"all_pairs": 0}
+
+    monkeypatch.setattr(cli, "prepare_manifests", fake_prepare)
+    cli.main(["prepare", str(tmp_path), "--scratch"])
+    assert seen["provenance"] == {"commit": "abc", "scratch": True, "dirty": " M x"}
+    assert seen["verify"] is False and seen["force"] is False
+
+
+def test_normal_prepare_verifies_and_passes_scratch_false(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import aerial_search.cli as cli
+    from aerial_search import run
+
+    monkeypatch.setattr(
+        run, "code_state", lambda *, scratch, repo=None: {"commit": "abc"}
+    )
+    seen: dict = {}
+    monkeypatch.setattr(
+        cli, "prepare_manifests", lambda *a, **k: seen.update(k) or {"all_pairs": 0}
+    )
+    cli.main(["prepare", str(tmp_path)])
+    assert seen["provenance"] == {"commit": "abc", "scratch": False}
+    assert seen["verify"] is True
+
+
+def test_checksum_refuses_to_overwrite_a_list_without_force(tmp_path: Path) -> None:
+    from aerial_search.cli import main
+
+    source = tmp_path / "raw"
+    (source / "a").mkdir(parents=True)
+    (source / "a" / "x").write_bytes(b"x")
+    pinned = tmp_path / "pin.tsv.gz"
+    main(["checksum", str(source), "--output", str(pinned)])
+    with pytest.raises(SystemExit, match="--force"):
+        main(["checksum", str(source), "--output", str(pinned)])
+    main(["checksum", str(source), "--output", str(pinned), "--force"])
+
+
+def test_fetch_directory_prints_the_aws_error_without_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import aerial_search.cli as cli
+    from aerial_search.data import checksums
+
+    def fail(*args: object, **kwargs: object) -> Path:
+        raise checksums.FetchError("aws failed (exit 255): token expired")
+
+    monkeypatch.setattr(checksums, "ensure_directory", fail)
+    with pytest.raises(SystemExit, match="token expired"):
+        cli.main(["fetch-directory", "x", "--data-root", str(tmp_path)])
