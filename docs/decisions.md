@@ -31,3 +31,4 @@ One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 - 2026-09-29 · chose a pretrained foundation model as the starting point over training ResNet18 from scratch · current practice, and frozen features can be cached so laptop runs stay short. Specific model to be chosen in issue #5.
 - 2026-09-29 · chose a GitHub project board over in-repo roadmap docs · the first attempt stalled with 600 lines of plans and no results; the board holds status in one place that survives agent sessions.
 - 2026-09-29 · chose `INTENT.md` plus `CLAUDE.md` over a single file · intent changes rarely and working rules change often.
+- 2026-10-01 · chose a gzipped per-file checksum list (3.9 MB) over per-directory hashes · a check must name every file that differs, and per-directory hashes only name the directory; the gzip has a fixed timestamp so the file is reproducible.

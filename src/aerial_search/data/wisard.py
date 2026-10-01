@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Iterable, Mapping
+import time
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypedDict
+
+from aerial_search.data import checksums
 
 
 @dataclass(frozen=True)
@@ -425,6 +428,10 @@ def prepare_manifests(
     destination: Path,
     *,
     collections: Collections = WISARD_COLLECTIONS,
+    provenance: Mapping[str, object] | None = None,
+    verify: bool = True,
+    pinned: Sequence[checksums.Entry] | None = None,
+    force: bool = False,
 ) -> dict[str, int]:
     """Write the all-pairs manifest and the labelled manifests.
 
@@ -437,12 +444,24 @@ def prepare_manifests(
       boxes_dropped, the boxes of its label file that were dropped
     - data_quality.json: whether this is a subset and which collections it
       holds, counts per collection, clipped boxes per collection, and the
-      directories that were left out or not paired
+      directories that were left out or not paired, `provenance` (the commit
+      and scratch flag the caller passes), and `data`: whether the directories
+      of the selected collections were verified against the pinned checksum
+      list, and its root hash if so
 
     Splits are not made here: they are by site-day, in folds/ (see
     aerial_search.data.folds). Split files left by an older version are
     removed, so nothing reads them by mistake. Returns the number of records
     in each manifest.
+
+    With `verify` (the default), the directories of the selected collections
+    are hashed and checked against `pinned` (default: the committed list)
+    before anything is written; a difference raises DataMismatchError naming
+    the files. A source none of whose directories are in the list is not a
+    pinned dataset: it is recorded as such, with no root hash. With
+    `verify=False` (scratch runs) nothing is checked and `verified` is false.
+    A scratch `provenance` refuses to overwrite manifests that are not
+    scratch, unless `force`.
 
     Raises FileNotFoundError if a listed directory is missing, and ValueError
     if no collections are given or a subset would replace full manifests.
@@ -452,7 +471,10 @@ def prepare_manifests(
     subset = set(collections) != set(WISARD_COLLECTIONS)
     if subset:
         _refuse_to_replace_full_manifests(destination)
+    if (provenance or {}).get("scratch") is True and not force:
+        _refuse_to_replace_quotable_manifests(destination)
     report = pairing_report(source, collections)
+    data = _verify_source(source, collections, verify, pinned)
     destination.mkdir(parents=True, exist_ok=True)
     for old_split in ("train.jsonl", "validation.jsonl", "test.jsonl"):
         (destination / old_split).unlink(missing_ok=True)
@@ -506,6 +528,8 @@ def prepare_manifests(
                     s["rgb_dropped"] + s["thermal_dropped"] for s in box_stats.values()
                 ),
                 "boxes": box_stats,
+                "provenance": dict(provenance) if provenance else None,
+                "data": data,
                 **report,
             },
             f,
@@ -513,6 +537,65 @@ def prepare_manifests(
         )
 
     return counts
+
+
+def _verify_source(
+    source: Path,
+    collections: Collections,
+    verify: bool,
+    pinned: Sequence[checksums.Entry] | None,
+) -> dict[str, object]:
+    """Check the selected collections' directories against the pinned list."""
+    unverified: dict[str, object] = {
+        "dataset": None,
+        "root_hash": None,
+        "verified": False,
+    }
+    if not verify:
+        return unverified
+    entries = list(pinned) if pinned is not None else checksums.committed_list()
+    directories = sorted(
+        {d for c in collections.values() for d in (c.rgb_dir, c.thermal_dir)}
+    )
+    listed = {e.path.split("/")[0] for e in entries}
+    if not listed & set(directories):
+        return unverified
+    started = time.monotonic()
+    difference = checksums.verify_directories(
+        source, directories, entries, checksums.print_progress
+    )
+    if difference:
+        raise checksums.DataMismatchError(
+            f"{source} differs from the pinned list; not writing manifests:\n"
+            + "\n".join(difference.lines())
+        )
+    return {
+        "dataset": checksums.DATASET,
+        "root_hash": checksums.root_hash(entries),
+        "verified": True,
+        "directories": directories,
+        "seconds": round(time.monotonic() - started, 1),
+    }
+
+
+def _refuse_to_replace_quotable_manifests(destination: Path) -> None:
+    """Raise if destination holds manifests that are not marked scratch."""
+    quality = destination / "data_quality.json"
+    if quality.exists():
+        try:
+            scratch = json.loads(quality.read_text())["provenance"]["scratch"] is True
+        except (ValueError, KeyError, TypeError):
+            scratch = False
+    else:
+        scratch = not any(
+            (destination / name).exists() for name in ("all_pairs.jsonl", "full.jsonl")
+        )
+    if not scratch:
+        raise ValueError(
+            f"{destination} holds manifests that are not marked scratch; a scratch "
+            "prepare would overwrite what a run may quote. Use another --output, "
+            "or pass --force."
+        )
 
 
 def _refuse_to_replace_full_manifests(destination: Path) -> None:

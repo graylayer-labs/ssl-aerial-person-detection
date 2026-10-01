@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from aerial_search.data import wisard
+from aerial_search.data import checksums, wisard
 from aerial_search.data.wisard import (
     WISARD_COLLECTIONS,
     Collection,
@@ -554,3 +554,91 @@ def _frame(path: Path) -> int:
 
 def _records(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+PROVENANCE = {"commit": "abc123", "scratch": False}
+
+
+def test_prepare_on_an_unpinned_tree_records_no_root_hash(tmp_path: Path) -> None:
+    clips = _two_clip_root(tmp_path)
+    out = tmp_path / "out"
+    prepare_manifests(tmp_path, out, collections=clips, provenance=PROVENANCE)
+
+    quality = json.loads((out / "data_quality.json").read_text())
+    assert quality["provenance"] == PROVENANCE
+    assert quality["data"]["dataset"] is None
+    assert quality["data"]["verified"] is False
+    assert quality["data"]["root_hash"] is None
+
+
+def test_prepare_verifies_the_directories_it_reads(tmp_path: Path) -> None:
+    from aerial_search.data.checksums import hash_tree, root_hash
+
+    clips = _two_clip_root(tmp_path)
+    pinned = hash_tree(tmp_path)
+    out = tmp_path / "out"
+    prepare_manifests(
+        tmp_path, out, collections=clips, provenance=PROVENANCE, pinned=pinned
+    )
+
+    data = json.loads((out / "data_quality.json").read_text())["data"]
+    assert data["verified"] is True
+    assert data["dataset"] == "wisard-full"
+    assert data["root_hash"] == root_hash(pinned)
+    assert data["directories"] == ["a_IR_0002", "a_VIS_0001", "b_IR_0004", "b_VIS_0003"]
+    assert data["seconds"] >= 0
+
+
+def test_prepare_refuses_a_changed_file_and_writes_nothing(tmp_path: Path) -> None:
+    from aerial_search.data.checksums import hash_tree
+
+    clips = _two_clip_root(tmp_path)
+    pinned = hash_tree(tmp_path)
+    (tmp_path / "a_VIS_0001" / "a_VIS_0001_0001_00000.jpg").write_bytes(b"edited")
+    out = tmp_path / "out"
+    with pytest.raises(checksums.DataMismatchError, match="a_VIS_0001_0001_00000"):
+        prepare_manifests(
+            tmp_path, out, collections=clips, provenance=PROVENANCE, pinned=pinned
+        )
+    assert not out.exists()
+
+
+def test_scratch_prepare_may_skip_verification(tmp_path: Path) -> None:
+    from aerial_search.data.checksums import hash_tree
+
+    clips = _two_clip_root(tmp_path)
+    pinned = hash_tree(tmp_path)
+    (tmp_path / "a_VIS_0001" / "a_VIS_0001_0001_00000.jpg").write_bytes(b"edited")
+    out = tmp_path / "out"
+    prepare_manifests(
+        tmp_path,
+        out,
+        collections=clips,
+        provenance={"commit": "c", "scratch": True},
+        pinned=pinned,
+        verify=False,
+    )
+    data = json.loads((out / "data_quality.json").read_text())["data"]
+    assert data["verified"] is False and data["root_hash"] is None
+
+
+def test_scratch_prepare_does_not_overwrite_quotable_manifests(tmp_path: Path) -> None:
+    clips = _two_clip_root(tmp_path)
+    out = tmp_path / "out"
+    prepare_manifests(tmp_path, out, collections=clips, provenance=PROVENANCE)
+    scratch = {"commit": "c", "scratch": True}
+    with pytest.raises(ValueError, match="--force"):
+        prepare_manifests(
+            tmp_path, out, collections=clips, provenance=scratch, verify=False
+        )
+    assert (
+        json.loads((out / "data_quality.json").read_text())["provenance"]["scratch"]
+        is False
+    )
+    prepare_manifests(
+        tmp_path, out, collections=clips, provenance=scratch, verify=False, force=True
+    )
+    # a scratch directory can be rewritten by another scratch run without force
+    prepare_manifests(
+        tmp_path, out, collections=clips, provenance=scratch, verify=False
+    )
