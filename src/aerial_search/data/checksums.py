@@ -25,7 +25,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DATASET = "wisard-full"
-BUCKET_URIS = {DATASET: "s3://ssl-aerial-person-detection-data-eu-west1/wisard/raw"}
+BUCKET_URIS = {
+    DATASET: "s3://ssl-aerial-person-detection-data-eu-west1/wisard/raw/wisard-full"
+}
 LIST_DIR = Path(__file__).resolve().parent / "checksums"
 SETTINGS = Path(__file__).resolve().parents[3] / ".claude" / "settings.json"
 WORKERS = 8
@@ -248,6 +250,11 @@ def ensure_directory(
     ]
     try:
         runner(command, check=True, capture_output=True, text=True)
+        if not any(temporary.rglob("*")):
+            # `aws s3 cp --recursive` exits 0 on a prefix that holds nothing.
+            raise DataMismatchError(
+                f"nothing was fetched from {uri}/{name}; check the bucket prefix"
+            )
         verify(temporary)
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)

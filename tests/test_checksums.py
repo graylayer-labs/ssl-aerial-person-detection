@@ -220,3 +220,31 @@ def test_committed_list_is_readable_and_has_a_root_hash() -> None:
     entries = checksums.committed_list("wisard-full")
     assert len(entries) > 100_000
     assert len(checksums.committed_root_hash("wisard-full")) == 64
+
+
+def test_default_bucket_prefix_names_the_dataset_directory() -> None:
+    # The files live under wisard/raw/wisard-full/<directory>. A prefix one
+    # level too high copies nothing, and `aws s3 cp` exits 0 on an empty
+    # prefix, so the mistake is silent.
+    assert checksums.BUCKET_URIS[checksums.DATASET].endswith("/wisard/raw/wisard-full")
+
+
+def test_fetch_that_copies_nothing_says_so(tmp_path: Path, pinned_tree) -> None:
+    _source, entries = pinned_tree
+    data = tmp_path / "data"
+    data.mkdir()
+
+    def nothing(command, **kwargs):  # a cp from an empty prefix: exit 0, no files
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    with pytest.raises(checksums.DataMismatchError, match="nothing was fetched"):
+        checksums.ensure_directory(
+            "a_0001",
+            data,
+            expected=entries,
+            runner=nothing,
+            profile="p",
+            bucket_uri="s3://b/k",
+        )
+    assert not (data / "a_0001").exists()
+    assert not (data / ".fetch-a_0001").exists()
