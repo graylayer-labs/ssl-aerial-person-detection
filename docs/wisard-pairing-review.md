@@ -53,8 +53,9 @@ subset on purpose, name the clips:
    It does not catch two different clips of similar length numbered from 0.
    Of the 115 wrong VIS/IR pairings on the same flight days, 11 pass it (106
    passed the first version, which measured against the smaller directory).
-   The clip-number check in rule 1, with the test that IR clip = VIS clip + 1
-   for every listed entry, rejects all 115.
+   The rule that IR clip = VIS clip + 1 for every listed entry, which a test
+   enforces, rejects all 115. The file-name check in rule 1 only proves that
+   files belong to their directory.
 
 Every naming scheme in the dataset, and what the number is:
 

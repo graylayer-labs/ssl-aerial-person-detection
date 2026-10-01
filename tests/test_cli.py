@@ -296,3 +296,40 @@ def test_detector_refuses_a_checkpoint_pretrained_in_another_fold(
             ]
         )
     assert not (repo / "outputs").exists()
+
+
+def _check_folds_output(monkeypatch, capsys, report) -> tuple[str, int | str | None]:
+    from aerial_search import cli
+
+    monkeypatch.setattr(cli, "check_folds", lambda *a, **k: report)
+    monkeypatch.setattr(cli, "_image_size", lambda source: None)
+    code = 0
+    try:
+        cli.main(["check-folds", "raw", "manifests"])
+    except SystemExit as exit_:
+        code = exit_.code
+    return capsys.readouterr().out, code
+
+
+def test_check_folds_marks_every_line_of_a_passing_check(monkeypatch, capsys) -> None:
+    from aerial_search.data.folds import CheckReport
+
+    out, code = _check_folds_output(
+        monkeypatch, capsys, CheckReport(lines=["no leaks", "gap 250"])
+    )
+
+    assert code == 0
+    assert out.splitlines() == ["OK   no leaks", "OK   gap 250"]
+
+
+def test_check_folds_prints_only_the_failures_of_a_failing_check(
+    monkeypatch, capsys
+) -> None:
+    from aerial_search.data.folds import CheckReport
+
+    report = CheckReport(lines=["no leaks", "gap 250"], problems=["train holds test"])
+
+    out, code = _check_folds_output(monkeypatch, capsys, report)
+
+    assert code == 1
+    assert out.splitlines() == ["FAIL train holds test"]

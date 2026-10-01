@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
@@ -69,6 +70,9 @@ class PairingReport(TypedDict):
     """How the image directories under a dataset root were paired."""
 
     collections: dict[str, CollectionCounts]
+    # Directories of listed collections that were not selected for this run.
+    unselected_directories: list[str]
+    # Directories that no listed collection uses.
     unpaired_directories: list[str]
 
 
@@ -125,7 +129,11 @@ WISARD_COLLECTIONS: Collections = {
 # does not line up: a wrong or missing offset, or clips at different frame
 # rates, such as Airfield VIS_4 (572 frames) with IR_4 (1,061). It does not
 # catch two different clips of similar length numbered from 0, which is most
-# wrong pairings from one flight day; the clip-number check on file names does.
+# wrong pairings from one flight day. Those are caught by the rule that the IR
+# clip number is the VIS clip number plus one, which
+# test_wisard_collections_follow_the_clip_numbering enforces. The check that
+# file names carry their directory's clip number only proves that the files
+# belong to their directory.
 MIN_SHARED_FRAMES = 0.95
 
 # WiSARD labels are written to six decimals, so a box drawn to the image edge
@@ -138,6 +146,9 @@ _IMAGE_SUFFIXES = {".jpg", ".jpeg"}
 
 def select_collections(ids: Iterable[str]) -> dict[str, Collection]:
     """Return the named WiSARD collections, to prepare a deliberate subset."""
+    ids = list(ids)
+    if not ids:
+        raise ValueError("No collections selected")
     unknown = [cid for cid in ids if cid not in WISARD_COLLECTIONS]
     if unknown:
         raise KeyError(f"Unknown WiSARD collections: {', '.join(unknown)}")
@@ -310,8 +321,9 @@ def pairing_report(
 ) -> PairingReport:
     """Describe how the image directories under root were paired.
 
-    Gives counts per collection and every image directory that was not
-    paired. Raises FileNotFoundError if a listed directory is missing.
+    Gives counts per collection, the directories of listed collections that
+    were not selected, and every image directory no listed collection uses.
+    Raises FileNotFoundError if a listed directory is missing.
     """
     grouped = _group_collections(root, collections)
     per_collection = {
@@ -319,12 +331,22 @@ def pairing_report(
         for cid, collection in collections.items()
     }
     used = {path.name for dirs in grouped.values() for path in dirs}
-    unpaired = sorted(
-        path.name
-        for path in root.iterdir()
-        if path.is_dir() and path.name not in used and any(path.glob("*.jp*g"))
-    )
-    return {"collections": per_collection, "unpaired_directories": unpaired}
+    unselected = {
+        name
+        for cid, c in WISARD_COLLECTIONS.items()
+        if cid not in collections
+        for name in (c.rgb_dir, c.thermal_dir)
+    } - used
+    unselected_present, unpaired = [], []
+    for path in sorted(root.iterdir()):
+        if not path.is_dir() or path.name in used or not any(path.glob("*.jp*g")):
+            continue
+        (unselected_present if path.name in unselected else unpaired).append(path.name)
+    return {
+        "collections": per_collection,
+        "unselected_directories": unselected_present,
+        "unpaired_directories": unpaired,
+    }
 
 
 def load_boxes(path: Path, stats: dict[str, int] | None = None) -> list[BoundingBox]:
@@ -342,6 +364,8 @@ def load_boxes(path: Path, stats: dict[str, int] | None = None) -> list[Bounding
         if len(fields) != 5 or fields[0] != "0":
             raise ValueError(f"Invalid person annotation at {path}:{line_number}")
         x, y, w, h = (float(v) for v in fields[1:])
+        if not all(math.isfinite(v) for v in (x, y, w, h)):
+            raise ValueError(f"Invalid person annotation at {path}:{line_number}")
         x0, x1 = max(0.0, x - w / 2), min(1.0, x + w / 2)
         y0, y1 = max(0.0, y - h / 2), min(1.0, y + h / 2)
         overshoot = max(-(x - w / 2), x + w / 2 - 1, -(y - h / 2), y + h / 2 - 1)
@@ -371,25 +395,28 @@ def load_pairs_by_collection(
 class _Labels:
     """Loads each label file once and counts clipped boxes per collection."""
 
-    def __init__(self) -> None:
+    def __init__(self, collection_ids: Iterable[str]) -> None:
         self.boxes: dict[Path, list[dict[str, float]]] = {}
-        self.stats: dict[str, dict[str, int]] = {}
+        self.dropped: dict[Path, int] = {}
+        # A clip with no labels still gets zeros, so it is not missing.
+        self.stats: dict[str, dict[str, int]] = {
+            cid: {
+                "rgb_clipped": 0,
+                "rgb_dropped": 0,
+                "thermal_clipped": 0,
+                "thermal_dropped": 0,
+            }
+            for cid in collection_ids
+        }
 
     def load(self, path: Path, collection_id: str, camera: str) -> list[dict]:
         if path not in self.boxes:
             counts: dict[str, int] = {}
             self.boxes[path] = [asdict(box) for box in load_boxes(path, counts)]
-            clip_stats = self.stats.setdefault(
-                collection_id,
-                {
-                    "rgb_clipped": 0,
-                    "rgb_dropped": 0,
-                    "thermal_clipped": 0,
-                    "thermal_dropped": 0,
-                },
-            )
+            self.dropped[path] = counts.get("boxes_dropped", 0)
+            clip_stats = self.stats[collection_id]
             clip_stats[f"{camera}_clipped"] += counts.get("boxes_clipped", 0)
-            clip_stats[f"{camera}_dropped"] += counts.get("boxes_dropped", 0)
+            clip_stats[f"{camera}_dropped"] += self.dropped[path]
         return self.boxes[path]
 
 
@@ -406,22 +433,30 @@ def prepare_manifests(
     - full.jsonl: pairs labelled in both cameras
     - rgb_labelled.jsonl, thermal_labelled.jsonl: every frame of a listed
       directory that has a label file for that camera, whether or not its
-      partner has one (for detection on one camera)
-    - data_quality.json: counts per collection, clipped boxes per collection,
-      and the directories that were not paired
+      partner has one (for detection on one camera); each carries
+      boxes_dropped, the boxes of its label file that were dropped
+    - data_quality.json: whether this is a subset and which collections it
+      holds, counts per collection, clipped boxes per collection, and the
+      directories that were left out or not paired
 
     Splits are not made here: they are by site-day, in folds/ (see
     aerial_search.data.folds). Split files left by an older version are
     removed, so nothing reads them by mistake. Returns the number of records
     in each manifest.
 
-    Raises FileNotFoundError if a listed directory is missing.
+    Raises FileNotFoundError if a listed directory is missing, and ValueError
+    if no collections are given or a subset would replace full manifests.
     """
+    if not collections:
+        raise ValueError("No collections to prepare")
+    subset = set(collections) != set(WISARD_COLLECTIONS)
+    if subset:
+        _refuse_to_replace_full_manifests(destination)
     report = pairing_report(source, collections)
     destination.mkdir(parents=True, exist_ok=True)
     for old_split in ("train.jsonl", "validation.jsonl", "test.jsonl"):
         (destination / old_split).unlink(missing_ok=True)
-    labels = _Labels()
+    labels = _Labels(collections)
 
     all_pairs_unlabeled = load_pairs(
         source, labelled_only=False, collections=collections
@@ -459,6 +494,8 @@ def prepare_manifests(
     with (destination / "data_quality.json").open("w") as f:
         json.dump(
             {
+                "subset": subset,
+                "selected_collections": list(collections),
                 "total_pairs": len(all_pairs_unlabeled),
                 "labeled_pairs": len(records),
                 "frames_skipped": len(all_pairs_unlabeled) - len(records),
@@ -478,6 +515,22 @@ def prepare_manifests(
     return counts
 
 
+def _refuse_to_replace_full_manifests(destination: Path) -> None:
+    """Raise if destination holds manifests that are not marked as a subset."""
+    quality = destination / "data_quality.json"
+    if quality.exists():
+        marked = json.loads(quality.read_text()).get("subset") is True
+    else:
+        marked = not any(
+            (destination / name).exists() for name in ("all_pairs.jsonl", "full.jsonl")
+        )
+    if not marked:
+        raise ValueError(
+            f"{destination} holds full manifests, or manifests that do not say "
+            f"what they are; not writing a subset over them. Use another --output."
+        )
+
+
 def _camera_records(
     source: Path, collections: Collections, camera: str, labels: _Labels
 ) -> list[dict[str, object]]:
@@ -495,6 +548,10 @@ def _camera_records(
                         "collection_id": cid,
                         "image": str(image.relative_to(source)),
                         "boxes": labels.load(label_file, cid, camera),
+                        # Boxes with no area left after clipping, so that a
+                        # label file that lost all its boxes is not read as an
+                        # empty one.
+                        "boxes_dropped": labels.dropped[label_file],
                     }
                 )
     return frames
