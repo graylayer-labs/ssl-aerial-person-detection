@@ -21,7 +21,7 @@ quoted elsewhere must come from a run on `main`.
 | File | Contents |
 |---|---|
 | `all_pairs.jsonl` | every pair, labelled or not (for self-supervised learning) |
-| `full.jsonl`, `train/validation/test.jsonl` | pairs labelled in both cameras, split by clip |
+| `full.jsonl` | pairs labelled in both cameras |
 | `rgb_labelled.jsonl`, `thermal_labelled.jsonl` | every frame of a listed clip with a label file for that camera, whether or not its partner has one (for detection on one camera) |
 
 A listed directory that is missing stops the run with an error. To prepare a
@@ -231,4 +231,5 @@ multi-modal column sums to 27,094), so it is a loose reference.
   because `220109_Baker_Enterprise_1` holds 38% of labelled pairs and the
   greedy split fills train and validation first. Collections are single clips,
   so clips from one site and day can land in different splits. Split logic
-  was out of scope.
+  was out of scope. Replaced by site-day folds in #3; see
+  `docs/site-folds-review.md`.

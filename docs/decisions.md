@@ -2,6 +2,12 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
+- 2026-10-01 · chose leave-one-site-day-out folds over one fixed test split · four labelled site-days cannot spare several for a fixed test set, and the claim is about unseen sites; results are per fold plus mean and spread. See `docs/site-folds-review.md` (#3).
+- 2026-10-01 · chose a 250-frame gap (50 s) between training and validation inside one clip over the 50 frames first proposed · at 50 frames Baker and Carnation frames are still far more alike than random frames of the clip; by 250 they are not (`tools/frame_similarity_lags.py`). Costs 250 frames each of Baker and Carnation 0023.
+- 2026-10-01 · chose to hold out the smallest labelled clip of a site-day as validation over a fixed fraction of frames · validation by whole clip never puts neighbouring frames on both sides; the smallest clip costs training the least.
+- 2026-10-01 · chose label-fraction subsets as nested prefixes of seeded 10-frame blocks, interleaved across site-days, over frames sampled at random · random frames spread over every scene, which is not a label shortage; prefixes make the fractions nested by construction.
+- 2026-10-01 · chose one unlabelled pool per fold that leaves out the test site-day and every view's validation frames over a pool per view · one self-supervised model then serves all three views, and validation stays unseen by pretraining.
+
 - 2026-09-29 · chose one local copy plus S3, fetched when needed, over mounting S3 as a drive · the mount tools for macOS either need system security reduced or are unproven on this version, and raw images are read once per model, which a mount does not help. See #7.
 - 2026-09-29 · chose an AWS role that may write but never delete, with bucket versioning on, over read-only access · agents will need to upload features and manifests; an overwrite can be undone and a delete cannot happen.
 - 2026-09-29 · chose an explicit list of verified VIS/IR directory pairs, matched on equal frame numbers, over grouping directories by site name and pairing by position · position pairing slips where frames are missing and cannot see that the 210327 Airfield VIS and IR run at different rates; the list pairs only what camera motion and contact sheets confirmed. Evidence in `docs/wisard-pairing-review.md` (#2).

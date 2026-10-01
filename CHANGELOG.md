@@ -6,6 +6,30 @@ each links to the issue or pull request that holds the detail.
 
 ## Epic: Trusted ground (in progress)
 
+### 2026-10-01
+
+**Changed**
+- WiSARD is split by site-day, leaving one out: each of the four labelled
+  site-days (MtErie, Carnation, FHL, Baker) is the test set of one fold, in
+  three label views, and results are reported per fold and as mean and
+  spread. The old random clip split, which put nothing in test, is gone. The
+  unlabelled pool of a fold excludes the test site-day's images. Label
+  fractions of 1, 5, 10, and 100% are nested runs of 10 consecutive frames.
+  `aerial-search check-folds` verifies that nothing of a test site-day
+  reaches training.
+  ([#3](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/3),
+  [review](docs/site-folds-review.md))
+
+**Found**
+- Frames 10 seconds apart in one clip are still far more alike than random
+  frames of that clip; it takes about 50 seconds (250 frames). A split inside
+  one clip now drops 250 frames between training and validation.
+  ([#3](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/3))
+- With four labelled site-days, 1% of a fold's training labels is 30 to 80
+  frames (3 to 8 runs of 2 seconds), sometimes from only two of the three
+  training sites. A 1% result needs several seeds.
+  ([#3](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/3))
+
 ### 2026-09-29
 
 **Found**
