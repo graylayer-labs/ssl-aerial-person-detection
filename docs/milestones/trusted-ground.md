@@ -55,7 +55,7 @@ Claude agents did the engineering; the owner directed and did the steps only
 a person can do, such as looking at the paired frames and accepting licences.
 A lead session delegated each issue to an agent on the cheapest model that
 could do it, re-ran its checks, and sent anything that touches results to a
-separate reviewer. Twenty-four issues closed through fifty-seven pull
+separate reviewer. Twenty-two issues closed through twenty-nine merged pull
 requests, each merged by passing CI on a protected branch, with every commit
 signed. A cold-start test, where a fresh agent with no context is asked to
 orient itself, was run twice and fixed fifteen gaps in the instructions. A

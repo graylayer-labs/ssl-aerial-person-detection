@@ -39,7 +39,7 @@ conversations.
    - Anything that looks wrong, such as a branch with no issue or an issue in
      progress with no branch.
 7. Pick the next issue and say which one and why. Tasks the epic marks as
-   independent may run in parallel, up to three agents at a time. Start on it unless it is
+   independent may run in parallel, up to two agents at a time. Start on it unless it is
    labelled `needs-owner` or falls under "Ask the owner first" in
    `CLAUDE.md`. Its `agent:` label names the model; the tiering table in
    `CLAUDE.md` says which agent to run.

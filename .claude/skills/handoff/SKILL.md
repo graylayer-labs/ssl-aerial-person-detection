@@ -49,6 +49,8 @@ conversation.
 
 **Open questions for the owner**
 - ...
+
+**Cost:** <tokens used by agents on this issue, from the task notifications>
 ```
 
 ## When the issue is finished
