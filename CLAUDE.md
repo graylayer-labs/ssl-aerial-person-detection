@@ -335,7 +335,6 @@ uv run python tools/pairing_contact_sheets.py data/raw/wisard-full \
 ```
 src/aerial_search/   package: data/, models/, experiments/
 tests/               tests for the package
-notebooks/           analysis notebooks, numbered
 docs/                milestone write-ups and decision notes
 tools/               one-off scripts that are worth keeping
 data/                datasets and manifests (git-ignored)
