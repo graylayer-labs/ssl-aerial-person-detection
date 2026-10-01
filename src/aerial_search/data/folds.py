@@ -47,6 +47,9 @@ PERCENTS = (1, 5, 10, 100)
 # the same clip (tools/frame_similarity_lags.py).
 VALIDATION_FRACTION = 0.15
 GAP_FRAMES = 250
+# The smallest gap check_folds accepts, whatever the builder used. Written out,
+# not derived from GAP_FRAMES, so a builder whose gap shrinks fails its check.
+MIN_GAP_FRAMES = 250
 # Label-fraction subsets are made of runs of this many consecutive labelled
 # frames (2 seconds), as an annotator would label a stretch of footage.
 BLOCK_FRAMES = 10
@@ -432,19 +435,27 @@ def check_folds(
 ) -> CheckReport:
     """Verify the fold manifests on disk, from the files themselves.
 
-    Site-days and clip times are read again from the image paths, not from
-    the fields the builder wrote. Checks that no image of a fold's test
-    site-day is in its training, validation, or unlabelled manifests; that
-    the test set holds every labelled frame of its site-day; that splits are
-    disjoint; that label-fraction subsets are nested and drawn from training;
-    that training and unlabelled frames stay more than the gap away from
-    validation frames of the same clip; and that the files are rebuilt byte
-    for byte from the seed in folds.json.
+    Site-day, clip, and clip time are read again from each image path, using
+    only the directory names in ``collections``; no field the builder wrote
+    is trusted. Checks that no image of a fold's test site-day is in its
+    training, validation, or unlabelled manifests; that the test set holds
+    every labelled frame of its site-day; that splits are disjoint; that the
+    two images of a pair are one moment of one clip; that label-fraction
+    subsets are nested and drawn from training; that training and unlabelled
+    frames stay more than MIN_GAP_FRAMES from validation frames of the same
+    clip, whatever gap folds.json records; and that the files are rebuilt
+    byte for byte from the seed in folds.json.
     """
     report = CheckReport()
     problems = report.problems
     summary = json.loads((folds_dir / SUMMARY).read_text())
-    gap = int(summary["gap_frames"])
+    gap = MIN_GAP_FRAMES
+    if int(summary["gap_frames"]) < gap:
+        problems.append(
+            f"{SUMMARY} records gap_frames {summary['gap_frames']}, "
+            f"below the minimum of {gap}"
+        )
+    where = _image_clips(collections)
     percents = [int(p) for p in summary["percents"]]
     sources = {view: _read(manifests / name) for view, name in SOURCES.items()}
     labelled_days = sorted(
@@ -514,13 +525,18 @@ def check_folds(
                         f"{fold}/{view}: {train_file(smaller)} is not nested "
                         f"in {train_file(larger)}"
                     )
-            held = _clip_times(files[VALIDATION], view, collections)
-            near = _clip_times(files[train_file(percents[-1])], view, collections)
+            for name, records in files.items():
+                for record in records:
+                    if len({where(i) for i in image_paths(record)}) > 1:
+                        problems.append(
+                            f"{fold}/{view}/{name}: the images of one record are "
+                            f"not one moment of one clip: {image_paths(record)}"
+                        )
+            held = _clip_times(files[VALIDATION], where)
+            near = _clip_times(files[train_file(percents[-1])], where)
             for record_set, label in ((near, "training"), (None, UNLABELLED)):
                 others = (
-                    record_set
-                    if record_set is not None
-                    else _clip_times(pool, "unlabelled", collections)
+                    record_set if record_set is not None else _clip_times(pool, where)
                 )
                 for clip, frames in held.items():
                     distance = _min_distance(frames, others.get(clip, []))
@@ -567,19 +583,39 @@ def _keys(records: list[dict]) -> set[str]:
     return {i for r in records for i in image_paths(r)}
 
 
+def _image_clips(collections: Collections) -> Callable[[str], tuple[str, int]]:
+    """Return a reader of (clip, clip time) from an image path alone.
+
+    The clip comes from the image's directory, looked up among the listed
+    directories; the time is the frame number in the file name, less the
+    thermal offset for a thermal directory. Raises ValueError for an image
+    in a directory that is not listed.
+    """
+    directories: dict[str, tuple[str, int]] = {}
+    for clip, collection in collections.items():
+        directories[collection.rgb_dir] = (clip, 0)
+        directories[collection.thermal_dir] = (clip, collection.thermal_offset)
+
+    def where(image: str) -> tuple[str, int]:
+        directory = image.split("/", 1)[0]
+        if directory not in directories:
+            raise ValueError(f"{image} is not in a listed clip directory")
+        clip, offset = directories[directory]
+        return clip, _extract_frame_index(Path(image)) - offset
+
+    return where
+
+
 def _clip_times(
-    records: list[dict], view: str, collections: Collections
+    records: list[dict], where: Callable[[str], tuple[str, int]]
 ) -> dict[str, list[int]]:
-    """Clip time of each record, read from its image path, grouped by clip."""
+    """Clip time of every image of the records, grouped by clip, both read
+    from the image paths."""
     times: dict[str, list[int]] = {}
     for record in records:
-        clip = str(record["collection_id"])
-        if view == "thermal":
-            offset = collections[clip].thermal_offset
-            frame = _extract_frame_index(Path(record["image"])) - offset
-        else:
-            frame = _extract_frame_index(Path(image_paths(record)[0]))
-        times.setdefault(clip, []).append(frame)
+        for image in image_paths(record):
+            clip, frame = where(image)
+            times.setdefault(clip, []).append(frame)
     for frames in times.values():
         frames.sort()
     return times

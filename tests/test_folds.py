@@ -1,14 +1,15 @@
 """Leave-one-site-day-out folds: nothing of a test site-day reaches training."""
 
 import json
+import re
 from collections import Counter
 from pathlib import Path
 
 import pytest
 
+from aerial_search.data import folds as folds_module
 from aerial_search.data.folds import (
     BLOCK_FRAMES,
-    GAP_FRAMES,
     PERCENTS,
     SUMMARY,
     UNLABELLED,
@@ -32,6 +33,32 @@ CLIPS = [
     ("240303_Charlie", 23, 600, "rgb", 0),
     ("240404_Delta", 31, 300, "none", 0),
 ]
+# The gap required between training and validation in one clip, written out
+# here rather than imported, so a builder whose gap shrinks fails these tests.
+MIN_GAP = 250
+
+
+def _directories() -> dict[str, tuple[str, int]]:
+    """Image directory -> (clip, thermal offset), from CLIPS alone."""
+    found = {}
+    for site, vis, _, _, offset in CLIPS:
+        flight = f"{site}_Enterprise"
+        clip = f"{flight}_{vis:04d}"
+        found[f"{flight}_VIS_{vis:04d}"] = (clip, 0)
+        found[f"{flight}_IR_{vis + 1:04d}"] = (clip, offset)
+    return found
+
+
+DIRECTORIES = _directories()
+
+
+def _where(image: str) -> tuple[str, int]:
+    """Clip and clip time of an image, read from its path, not the record."""
+    directory, name = image.split("/")
+    clip, offset = DIRECTORIES[directory]
+    match = re.search(r"_(\d+)\.jpeg$", name)
+    assert match, image
+    return clip, int(match.group(1)) - offset
 
 
 def _size(path: str) -> tuple[int, int]:
@@ -170,18 +197,18 @@ def test_validation_is_a_whole_clip_where_the_site_day_has_several(
     view = destination / "240202_Bravo" / "paired"
     validation = _records(view / "validation.jsonl")
     train = _records(view / train_file(100))
-    alpha_validation = {
-        r["collection_id"] for r in validation if "Alpha" in r["site_day"]
-    }
+    held = [_where(i) for r in validation for i in _images(r)]
+    trained = {_where(i)[0] for r in train for i in _images(r)}
+    alpha = [(c, f) for c, f in held if "Alpha" in c]
     # The smallest Alpha clip is held out whole, and none of it is trained on.
-    assert alpha_validation == {"240101_Alpha_Enterprise_0005"}
-    assert len([r for r in validation if "Alpha" in r["site_day"]]) == 120
-    assert "240101_Alpha_Enterprise_0005" not in {r["collection_id"] for r in train}
+    assert {c for c, _ in alpha} == {"240101_Alpha_Enterprise_0005"}
+    assert len({f for _, f in alpha}) == 120
+    assert "240101_Alpha_Enterprise_0005" not in trained
     # Charlie has two clips, but only one labelled in both cameras: its
     # validation is the end of that clip.
-    charlie = [r for r in validation if r["site_day"] == "240303_Charlie"]
-    assert {r["collection_id"] for r in charlie} == {"240303_Charlie_Enterprise_0021"}
-    assert min(r["frame"] for r in charlie) == 340
+    charlie = [(c, f) for c, f in held if "Charlie" in c]
+    assert {c for c, _ in charlie} == {"240303_Charlie_Enterprise_0021"}
+    assert min(f for _, f in charlie) == 340
 
 
 def test_gap_between_training_and_validation_within_a_clip(
@@ -193,22 +220,20 @@ def test_gap_between_training_and_validation_within_a_clip(
         for view in VIEWS:
             validation = _records(destination / fold / view / "validation.jsonl")
             train = _records(destination / fold / view / train_file(100))
-            for clip in {r["collection_id"] for r in validation}:
-                held = [r["frame"] for r in validation if r["collection_id"] == clip]
-                others = [
-                    r["frame"] for r in train + pool if r["collection_id"] == clip
-                ]
-                if others:
-                    assert min(held) - max(others) > GAP_FRAMES, (fold, view, clip)
+            held = [_where(i) for r in validation for i in _images(r)]
+            others = [_where(i) for r in train + pool for i in _images(r)]
+            for clip, frame in held:
+                near = [abs(frame - f) for c, f in others if c == clip]
+                assert min(near, default=MIN_GAP + 1) > MIN_GAP, (fold, view, clip)
     # Bravo is one clip of 1,000 frames: validation is its last 150, and the
     # 250 frames before that are used nowhere.
     view = destination / "240101_Alpha" / "paired"
     bravo = [
-        r["frame"]
+        _where(r["rgb_image"])[1]
         for r in _records(view / train_file(100))
-        if r["site_day"] == "240202_Bravo"
+        if site_day(r["rgb_image"]) == "240202_Bravo"
     ]
-    assert max(bravo) == 850 - GAP_FRAMES - 1
+    assert max(bravo) == 599
 
 
 def test_thermal_frames_use_the_clip_time_of_their_rgb_partner(
@@ -246,7 +271,7 @@ def test_label_fractions_are_nested_contiguous_and_reproducible(
     # Contiguous blocks: the 1% subset is runs of consecutive frames.
     one = _records(destination / "240303_Charlie" / "paired" / train_file(1))
     assert len(one) == BLOCK_FRAMES * 2
-    frames = sorted((r["collection_id"], r["frame"]) for r in one)
+    frames = sorted(_where(r["rgb_image"]) for r in one)
     runs = sum(
         1
         for a, b in zip(frames, frames[1:], strict=False)
@@ -271,7 +296,7 @@ def test_small_fractions_keep_site_days_in_proportion(
     # In the Charlie fold, Alpha trains on 500 paired frames and Bravo on 600:
     # 10% is 11 blocks, and both site-days must be in it.
     ten = _records(destination / "240303_Charlie" / "paired" / train_file(10))
-    counts = Counter(r["site_day"] for r in ten)
+    counts = Counter(site_day(r["rgb_image"]) for r in ten)
     assert set(counts) == {"240101_Alpha", "240202_Bravo"}
 
 
@@ -339,11 +364,52 @@ def test_check_finds_validation_too_close_to_training(
     near = next(
         r
         for r in _records(destination / "240202_Bravo" / "paired" / "test.jsonl")
-        if r["frame"] == 800
+        if _where(r["rgb_image"])[1] == 800
     )
     _corrupt(view / train_file(100), near)
     report = check_folds(manifests, destination, _size, collections=collections)
-    assert any("gap" in p for p in report.problems)
+    assert any("inside the gap" in p for p in report.problems)
+
+
+def test_check_reads_the_clip_from_the_path_not_the_record(
+    folds: tuple[Path, Path, dict],
+) -> None:
+    # A gap frame of Bravo moved into training, its collection_id and frame
+    # changed to another clip's: the check must still see it is Bravo frame
+    # 700, 150 frames from Bravo's validation, without the rebuild.
+    manifests, destination, collections = folds
+    view = destination / "240101_Alpha" / "paired"
+    gap_frame = next(
+        r
+        for r in _records(destination / "240202_Bravo" / "paired" / "test.jsonl")
+        if _where(r["rgb_image"])[1] == 700
+    )
+    gap_frame |= {
+        "site_day": "240303_Charlie",
+        "collection_id": "240303_Charlie_Enterprise_0021",
+        "frame": 10,
+    }
+    _corrupt(view / train_file(100), gap_frame)
+    report = check_folds(manifests, destination, _size, collections=collections)
+    assert any(
+        "240101_Alpha/paired: training frame 150 frames from validation in "
+        "240202_Bravo_Enterprise_0011" in p
+        for p in report.problems
+    ), report.problems
+
+
+def test_check_holds_a_minimum_gap_whatever_the_builder_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifests, collections = _dataset(tmp_path)
+    destination = manifests / "folds"
+    monkeypatch.setattr(folds_module, "GAP_FRAMES", 0)
+    write_folds(manifests, destination, _size, collections=collections)
+
+    report = check_folds(manifests, destination, _size, collections=collections)
+
+    assert any(f"gap of {MIN_GAP}" in p for p in report.problems), report.problems
+    assert any("gap_frames 0" in p for p in report.problems), report.problems
 
 
 def test_check_finds_a_subset_that_is_not_nested(
