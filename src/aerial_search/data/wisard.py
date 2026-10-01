@@ -129,7 +129,11 @@ WISARD_COLLECTIONS: Collections = {
 # does not line up: a wrong or missing offset, or clips at different frame
 # rates, such as Airfield VIS_4 (572 frames) with IR_4 (1,061). It does not
 # catch two different clips of similar length numbered from 0, which is most
-# wrong pairings from one flight day; the clip-number check on file names does.
+# wrong pairings from one flight day. Those are caught by the rule that the IR
+# clip number is the VIS clip number plus one, which
+# test_wisard_collections_follow_the_clip_numbering enforces. The check that
+# file names carry their directory's clip number only proves that the files
+# belong to their directory.
 MIN_SHARED_FRAMES = 0.95
 
 # WiSARD labels are written to six decimals, so a box drawn to the image edge
