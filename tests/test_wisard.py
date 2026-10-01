@@ -175,7 +175,10 @@ def _two_clip_root(root: Path) -> dict[str, Collection]:
         "b_0003": Collection("b_VIS_0003", "b_IR_0004", "0003", "0004"),
     }
     for c in clips.values():
-        for directory, clip in [(c.rgb_dir, c.rgb_clip), (c.thermal_dir, c.thermal_clip)]:
+        for directory, clip in [
+            (c.rgb_dir, c.rgb_clip),
+            (c.thermal_dir, c.thermal_clip),
+        ]:
             (root / directory).mkdir()
             _touch(root / directory / f"{directory}_{clip}_00000.jpg")
     (root / "stray_VIS_9").mkdir()
@@ -464,9 +467,7 @@ def test_a_label_file_that_lost_all_its_boxes_differs_from_an_empty_one(
 
     prepare_manifests(tmp_path, out, collections=FLIGHT)
 
-    by_name = {
-        Path(r["image"]).name: r for r in _records(out / "rgb_labelled.jsonl")
-    }
+    by_name = {Path(r["image"]).name: r for r in _records(out / "rgb_labelled.jsonl")}
     empty = by_name["flight_VIS_0001_00000.jpg"]
     dropped = by_name["flight_VIS_0001_00001.jpg"]
     kept = by_name["flight_VIS_0001_00002.jpg"]
