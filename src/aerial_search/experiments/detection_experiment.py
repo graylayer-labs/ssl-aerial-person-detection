@@ -76,7 +76,7 @@ def run_detection_experiment(
     """Train and evaluate a lightweight person-centre locator."""
     torch.manual_seed(seed)
     device = get_device()
-    train_data = LocationGrids(manifests / "train.jsonl", data_root, modality)
+    train_data = LocationGrids(manifests / "train_100pct.jsonl", data_root, modality)
     validation_data = LocationGrids(manifests / "validation.jsonl", data_root, modality)
     train_loader = DataLoader(train_data, batch_size=16, shuffle=True)
     validation_loader = DataLoader(validation_data, batch_size=16)
