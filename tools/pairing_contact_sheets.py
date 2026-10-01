@@ -4,16 +4,13 @@ One JPEG per collection: pairs sampled from the start, middle, and end of the
 collection, RGB beside thermal, label boxes drawn, filenames printed under
 each pair. Look at them before trusting a manifest.
 
-    # every collection in a manifest
     uv run python tools/pairing_contact_sheets.py \
         data/raw/wisard-full data/manifests/wisard-full/all_pairs.jsonl \
         outputs/pairing-check
 
-    # one VIS/IR directory pair matched on equal frame numbers (e.g. to see why
-    # a flight was excluded)
-    uv run python tools/pairing_contact_sheets.py data/raw/wisard-full \
-        --pair 210327_Airfield_FLIR_VIS_4 210327_Airfield_FLIR_IR_4 \
-        outputs/pairing-check
+Sheets come only from a manifest, so they show the pairs the code made, with
+each collection's offset and clip numbers applied. There is no mode that
+matches two directories on equal frame numbers: it would ignore both.
 """
 
 from __future__ import annotations
@@ -25,40 +22,31 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from aerial_search.data.wisard import _frames_by_index
-
 ROW_HEIGHT = 240
 CAPTION = 34
 SAMPLES_PER_PART = 2  # two pairs each from start, middle, end
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("source", type=Path, help="dataset root, e.g. data/raw/...")
-    parser.add_argument("manifest", type=Path, nargs="?", help="all_pairs.jsonl")
+    parser.add_argument("manifest", type=Path, help="all_pairs.jsonl")
     parser.add_argument("output", type=Path, help="directory for the sheets")
-    parser.add_argument("--pair", nargs=2, metavar=("VIS_DIR", "IR_DIR"))
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
 
     collections: dict[str, list[tuple[Path, Path]]] = defaultdict(list)
-    if args.pair:
-        rgb = _frames_by_index(args.source / args.pair[0])
-        thermal = _frames_by_index(args.source / args.pair[1])
-        name = f"UNVERIFIED_{args.pair[0]}__{args.pair[1]}"
-        collections[name] = [
-            (rgb[i], thermal[i]) for i in sorted(set(rgb) & set(thermal))
-        ]
-    elif args.manifest:
-        for line in args.manifest.read_text().splitlines():
-            record = json.loads(line)
-            collections[record["collection_id"]].append(
-                (
-                    args.source / record["rgb_image"],
-                    args.source / record["thermal_image"],
-                )
+    for line in args.manifest.read_text().splitlines():
+        record = json.loads(line)
+        collections[record["collection_id"]].append(
+            (
+                args.source / record["rgb_image"],
+                args.source / record["thermal_image"],
             )
-    else:
-        parser.error("give a manifest or --pair")
+        )
 
     args.output.mkdir(parents=True, exist_ok=True)
     for name, pairs in sorted(collections.items()):
