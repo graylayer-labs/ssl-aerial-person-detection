@@ -116,10 +116,10 @@ Two standing issues never close: "Reusable tooling candidates" (#9) and
 
 - Create branches, commit, push branches, open and update PRs.
 - Create, edit, comment on, and close issues. Update the board.
-- Merge PRs. `main` is protected: nothing is pushed to it directly, and a PR
-  merges only when the `checks` CI job passes. No human review is required.
-  Merge through GitHub and never locally: GitHub signs each squash merge, so
-  every commit on `main` shows as verified.
+- Merge PRs. `main` is protected: nothing is pushed to it directly, a PR
+  merges only when the `checks` CI job passes, and every commit must be
+  signed. No human review is required. Merge through GitHub and never
+  locally.
   Set a PR to merge itself with `gh pr merge <n> --auto --squash`.
 - Delete superseded code and docs. Git history is the archive.
 - Delete and regenerate anything under `data/manifests/` and `outputs/`.
@@ -183,6 +183,20 @@ or the board unprompted.
   placeholders in files for the owner to fill in.
 - End each session with a short summary: what changed, what was decided, what
   needs them.
+
+## Commit signing
+
+Every commit is signed, on branches as well as on `main`. The repository's
+local git config signs with an SSH key made for this project,
+`~/.ssh/ssl_aerial_signing_ed25519`, which is registered on the owner's
+GitHub account as a signing key. The key has no passphrase so that agents can
+sign; it signs commits and nothing else.
+
+- Agent worktrees share the repository's config, so they sign too.
+- If a commit fails with a signing error, the key is missing: a fresh machine
+  needs its own key, registered on GitHub, and the three `git config --local`
+  lines in issue #27.
+- Never copy the private key anywhere, and never commit it.
 
 ## Commands
 
