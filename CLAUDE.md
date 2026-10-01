@@ -348,6 +348,7 @@ Keep it short, and keep one home for each fact.
 | Why a technical choice was made | `docs/decisions.md`, one line each |
 | The evidence behind a decision, when it is long | `docs/<topic>-review.md` |
 | What a milestone found | `docs/milestones/<name>.md`, created with the first write-up |
+| Raw material for the guide, per closed issue | `docs/guide/notes/<issue>.md`, written at handoff, deleted once in a chapter |
 | How the project was built, step by step, with its mistakes | `docs/guide/`, kept current with `/guide` |
 | A short, result-led post for a general reader | `docs/blog/`, drafted with `/blog` for the owner to edit |
 

@@ -61,6 +61,13 @@ Use the same template with **State: done**, and add:
 Then add one line to the parent epic's "Decisions so far" list: the date, the
 outcome in a sentence, and a link to this issue.
 
+Then leave a note for the guide. Append a file `docs/guide/notes/<issue>.md`
+of ten lines or fewer: what the issue set out to do, what it found, the
+decision and why, and which sources hold the numbers. No number goes in the
+note unless the source is named beside it. This is cheap, and it means the
+guide and the blog can be assembled later without re-reading every issue. Do
+it in the same PR as the change when there is one; otherwise commit it alone.
+
 ## Rules
 
 - Write for an agent that has never seen this project.
