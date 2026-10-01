@@ -163,11 +163,9 @@ def summarise_camera(
     weights, shares = [], []
     for clip in sorted({f["clip"] for f in sure}):
         cf = [f for f in sure if f["clip"] == clip]
-        shares.append(
-            sum(1 for f in cf if review[f["image"]]["missed"] > 0) / len(cf)
-        )
+        shares.append(sum(1 for f in cf if review[f["image"]]["missed"] > 0) / len(cf))
         weights.append(clip_sizes[clip])
-    weighted = sum(w * s for w, s in zip(weights, shares)) / sum(weights)
+    weighted = sum(w * s for w, s in zip(weights, shares, strict=True)) / sum(weights)
 
     per_clip = {}
     for clip in sorted({f["clip"] for f in frames}):
