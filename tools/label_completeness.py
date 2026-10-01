@@ -15,6 +15,9 @@ chosen at random, empty label files included. Each sheet shows the whole frame
 with its boxes in red at half the width of a quarter, and below it a zoomed
 crop of each quarter in a 2x2 grid.
 
+To look at one clip, add `--clip <collection_id> --camera thermal`: the frames
+are then evenly spaced through that clip (random start) instead of random.
+
 `review.json` is written by the reviewer, not by this script, and is never
 overwritten here. It maps a frame's image path to
 `{"missed": int, "confidence": "sure" | "unsure", "note": str}`, where `missed`
@@ -58,20 +61,45 @@ def load_labelled(manifests: Path, camera: str) -> dict[str, list[dict]]:
     return {clip: sorted(f, key=lambda r: r["image"]) for clip, f in clips.items()}
 
 
+def evenly_spaced(frames: list[dict], k: int, rng: random.Random) -> list[dict]:
+    """`k` frames at equal spacing through the clip, from a random start."""
+    if k >= len(frames):
+        return list(frames)
+    step = len(frames) / k
+    start = rng.random() * step
+    return [frames[int(start + i * step)] for i in range(k)]
+
+
 def draw_sample(
-    manifests: Path, seed: int, per_stratum: int
+    manifests: Path,
+    seed: int,
+    per_stratum: int,
+    clip: str | None = None,
+    camera: str | None = None,
 ) -> list[dict[str, object]]:
-    """Simple random sample of `per_stratum` frames from every camera and clip."""
+    """Sample `per_stratum` frames from every camera and clip.
+
+    Simple random by default. With `clip` set, only that clip is drawn and the
+    frames are evenly spaced through it; `camera` narrows to one camera.
+    """
     sample: list[dict[str, object]] = []
-    for camera in CAMERAS:
-        for clip, frames in sorted(load_labelled(manifests, camera).items()):
-            rng = random.Random(f"{seed}/{camera}/{clip}")
-            for record in rng.sample(frames, min(per_stratum, len(frames))):
+    for cam in CAMERAS:
+        if camera and cam != camera:
+            continue
+        for name, frames in sorted(load_labelled(manifests, cam).items()):
+            if clip and name != clip:
+                continue
+            rng = random.Random(f"{seed}/{cam}/{name}")
+            if clip:
+                chosen = evenly_spaced(frames, per_stratum, rng)
+            else:
+                chosen = rng.sample(frames, min(per_stratum, len(frames)))
+            for record in chosen:
                 sample.append(
                     {
-                        "id": f"{camera}_{len(sample):03d}",
-                        "camera": camera,
-                        "clip": clip,
+                        "id": f"{cam}_{len(sample):03d}",
+                        "camera": cam,
+                        "clip": name,
                         "image": record["image"],
                         "n_boxes": len(record["boxes"]),
                         "boxes": record["boxes"],
@@ -129,7 +157,9 @@ def make_sheet(source: Path, entry: dict, out: Path) -> None:
 
 
 def cmd_sample(args: argparse.Namespace) -> None:
-    sample = draw_sample(args.manifests, args.seed, args.per_stratum)
+    sample = draw_sample(
+        args.manifests, args.seed, args.per_stratum, args.clip, args.camera
+    )
     args.output.mkdir(parents=True, exist_ok=True)
     for entry in sample:
         make_sheet(args.source, entry, args.output / f"{entry['id']}.jpg")
@@ -208,6 +238,8 @@ def cmd_summarise(args: argparse.Namespace) -> None:
     result = {"seed": tally["seed"]}
     for camera in CAMERAS:
         frames = [f for f in tally["frames"] if f["camera"] == camera]
+        if not frames:  # a single-camera or single-clip sample
+            continue
         sizes = {c: len(v) for c, v in load_labelled(args.manifests, camera).items()}
         result[camera] = summarise_camera(frames, review, sizes)
     (args.output / "summary.json").write_text(json.dumps(result, indent=1))
@@ -223,6 +255,8 @@ def main() -> None:
     s.add_argument("output", type=Path, help="directory for sheets and tally.json")
     s.add_argument("--seed", type=int, required=True)
     s.add_argument("--per-stratum", type=int, default=9, help="frames per camera+clip")
+    s.add_argument("--clip", help="draw only this clip, evenly spaced through it")
+    s.add_argument("--camera", choices=CAMERAS, help="draw only this camera")
     s.set_defaults(func=cmd_sample)
     t = sub.add_parser("summarise", help="compute estimates from review.json")
     t.add_argument("manifests", type=Path)
