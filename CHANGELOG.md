@@ -8,6 +8,14 @@ each links to the issue or pull request that holds the detail.
 
 ### 2026-10-01
 
+**Changed**
+- Thermal clip `210924_FHL_Enterprise_0403`: its 1,201 empty-label frames
+  (about 86% of them show people with no box) are out of every thermal
+  train, validation, and test set and stay in the unlabelled pool, through
+  an override list in `folds.py` that `check-folds` verifies. The FHL thermal
+  test set drops from 5,420 to 4,219 frames.
+  ([#53](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/53))
+
 **Added**
 - The WiSARD dataset is pinned by a committed list of 100,794 files with
   size and SHA-256 (3.9 MB gzipped, root hash `6e5e5d55...75ed`). A normal

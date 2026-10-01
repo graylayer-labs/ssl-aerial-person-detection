@@ -31,6 +31,9 @@ from one site-day share terrain, light, weather, and often the same people.
   the test site-day, minus every frame that any view's validation holds or
   that any view's gap removes. So self-supervised pretraining sees neither
   the test site nor the validation frames. One pool serves all three views.
+- **Label overrides**: a clip's empty-label frames can be treated as
+  unlabelled where the empty label is not trusted (below). They are in no
+  manifest of that camera, in any fold, and stay in the unlabelled pool.
 - **Label fractions**: 1%, 5%, 10%, 100% of each view's training labels,
   nested, seeded (seed 7), made of blocks of 10 consecutive labelled
   records of one clip.
@@ -40,6 +43,60 @@ A site-day is derived from the directory name, never typed by hand:
 the derivation on all 17 collections (five site-days: MtErie 3 clips,
 Carnation 2, Hannegan 2, FHL 9, Baker 1), and the builder refuses a record
 whose image directory names another site-day than its clip.
+
+## Label overrides
+
+`LABEL_OVERRIDES` in `src/aerial_search/data/folds.py` lists (clip, camera,
+rule, reason) entries and `folds.json` records each with its frame count. The
+rule `empty_label` names the frames whose label file exists and holds no box.
+The first entry is the thermal view of `210924_FHL_Enterprise_0403` (thermal
+directory `210924_FHL_Enterprise_IR_0404`), issue
+[#53](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/53).
+
+- **Why.** [#49](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/49)
+  found labelling stops about 215 frames in. In a 60-frame sample, 30 of the
+  35 empty-label frames judged with certainty held an unboxed person (85.7%,
+  95% interval 70.6 to 93.7); scaled to the clip, roughly 1,030 of its 1,201
+  empty-label frames (850 to 1,125). Left in, they teach a thermal detector
+  that visible people are background and make the FHL thermal test set charge
+  false alarms for finding real people. Evidence:
+  `docs/label-completeness-review.md`, "Thermal clip FHL_0403".
+- **Effect.** The 1,201 frames leave every thermal train, validation, and
+  test manifest and stay in the pool of the folds where FHL is a training
+  site (MtErie, Carnation, Baker); the FHL fold's pool already excludes the
+  site-day. The pool is built from pairs, so it is unchanged. The clip's
+  215 or so boxed frames stay. No label file is changed, and the rgb and
+  paired views are untouched (the paired view still holds this clip's pairs,
+  whose thermal side is empty; not addressed here).
+- **Validation is unchanged.** The override is applied after the split, so
+  validation still comes from the same clips; with the override this clip
+  would otherwise shrink to 216 frames, fewer than clip 0134's 273, and
+  become the validation clip.
+- **Check.** `check-folds` finds the frames again from the source manifest
+  (clip directory, empty label), and fails if one is in any thermal manifest,
+  if one is missing from the pool of a fold that trains on FHL, or if
+  `folds.json` does not record the override.
+
+Thermal frames per fold, before and after (boxes do not change, as the
+removed frames hold none):
+
+| Fold | Train 100%, before | after | Test, before | after |
+|---|---|---|---|---|
+| MtErie | 7,191 | 5,990 | 708 | 708 |
+| Carnation | 7,286 | 6,085 | 740 | 740 |
+| FHL | 2,580 | 2,580 | 5,420 | 4,219 |
+| Baker | 6,124 | 4,923 | 2,180 | 2,180 |
+
+Validation frames are unchanged in all four folds.
+
+**The thermal label-fraction subsets are redrawn.** Subsets are drawn after
+the override, and the draw shuffles blocks per site-day, so removing this
+clip's blocks reorders the FHL blocks. The 1%, 5%, and 10% thermal subsets of
+the MtErie, Carnation, and Baker folds therefore hold different frames and
+different box counts from a build without the override, not merely fewer.
+The 100% training sets and the test sets lose exactly the 1,201 frames and no
+boxes. No thermal result was produced before the override, so nothing is made
+incomparable by it.
 
 ## Where validation comes from
 
@@ -164,6 +221,9 @@ fields the builder wrote:
 - training and unlabelled frames are more than 250 frames from validation
   in the same clip. The 250 is written into the check, so a builder whose
   gap shrinks fails it whatever `folds.json` says;
+- each label override is applied: its frames, found again in the source
+  manifest, are in no manifest of their camera and are in the pool of every
+  fold that trains on their site-day;
 - the files are rebuilt byte for byte from the seed in `folds.json`.
 
 Every fold writes files with the same names (`train_100pct.jsonl` and so on)
@@ -281,16 +341,16 @@ Label fractions, frames / rgb boxes / site-days:
 
 | Fold (test site-day) | Split | Site-days | Clips | Frames | Thermal boxes |
 |---|---|---|---|---|---|
-| MtErie | train | Carnation, FHL, Baker | 7 | 7,191 | 13,073 |
+| MtErie | train | Carnation, FHL, Baker | 7 | 5,990 | 13,073 |
 | MtErie | validation | Carnation, FHL, Baker | 3 | 712 | 926 |
 | MtErie | test | MtErie | 3 | 708 | 1,824 |
-| Carnation | train | MtErie, FHL, Baker | 8 | 7,286 | 13,225 |
+| Carnation | train | MtErie, FHL, Baker | 8 | 6,085 | 13,225 |
 | Carnation | validation | MtErie, FHL, Baker | 3 | 772 | 1,100 |
 | Carnation | test | Carnation | 1 | 740 | 1,714 |
 | FHL | train | MtErie, Carnation, Baker | 4 | 2,580 | 6,737 |
 | FHL | validation | MtErie, Carnation, Baker | 3 | 611 | 1,007 |
-| FHL | test | FHL | 6 | 5,420 | 8,079 |
-| Baker | train | MtErie, Carnation, FHL | 8 | 6,124 | 10,780 |
+| FHL | test | FHL | 6 | 4,219 | 8,079 |
+| Baker | train | MtErie, Carnation, FHL | 8 | 4,923 | 10,780 |
 | Baker | validation | MtErie, Carnation, FHL | 3 | 557 | 621 |
 | Baker | test | Baker | 1 | 2,180 | 5,261 |
 
@@ -314,10 +374,10 @@ Label fractions, frames / thermal boxes / site-days:
 
 | Fold | 1% | 5% | 10% | 100% |
 |---|---|---|---|---|
-| MtErie | 80 / 164 / 3 | 360 / 558 / 3 | 727 / 1,293 / 3 | 7,191 / 13,073 / 3 |
-| Carnation | 80 / 135 / 3 | 370 / 632 / 3 | 737 / 1,447 / 3 | 7,286 / 13,225 / 3 |
+| MtErie | 60 / 119 / 3 | 300 / 600 / 3 | 603 / 1,381 / 3 | 5,990 / 13,073 / 3 |
+| Carnation | 70 / 165 / 3 | 306 / 689 / 3 | 616 / 1,372 / 3 | 6,085 / 13,225 / 3 |
 | FHL | 30 / 58 / 2 | 130 / 328 / 3 | 260 / 685 / 3 | 2,580 / 6,737 / 3 |
-| Baker | 70 / 89 / 2 | 310 / 491 / 3 | 621 / 1,096 / 3 | 6,124 / 10,780 / 3 |
+| Baker | 50 / 82 / 2 | 250 / 544 / 3 | 501 / 1,103 / 3 | 4,923 / 10,780 / 3 |
 
 ### Unlabelled pool
 
@@ -327,7 +387,6 @@ Label fractions, frames / thermal boxes / site-days:
 | Carnation | MtErie, Hannegan, FHL, Baker | 13 | 11,760 |
 | FHL | MtErie, Carnation, Hannegan, Baker | 6 | 4,588 |
 | Baker | MtErie, Carnation, Hannegan, FHL | 13 | 11,470 |
-
 
 ## What four site-days can and cannot support
 

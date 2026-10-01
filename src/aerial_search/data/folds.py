@@ -68,6 +68,39 @@ SOURCES = {
 ALL_PAIRS = "all_pairs.jsonl"
 QUALITY = "data_quality.json"
 
+
+@dataclass(frozen=True)
+class LabelOverride:
+    """Frames of one clip whose label is not trusted, and why.
+
+    ``rule`` says which frames: "empty_label" is those whose label file exists
+    and holds no box. They leave every labelled manifest of ``camera`` (train,
+    validation, and test, in every fold) and stay in the unlabelled pool, which
+    is built from pairs, so a fold that trains on the site-day pools them.
+    """
+
+    collection_id: str
+    camera: str
+    rule: str
+    reason: str
+
+
+RULES = ("empty_label",)
+
+# Where an empty label file is not evidence of an empty frame. One reviewer found
+# unboxed people in about 86% of this clip's empty-label thermal frames (95%
+# interval 70.6 to 93.7); labelling appears to stop about 215 frames in.
+# docs/label-completeness-review.md, "Thermal clip FHL_0403"; issue #53.
+LABEL_OVERRIDES: tuple[LabelOverride, ...] = (
+    LabelOverride(
+        "210924_FHL_Enterprise_0403",
+        "thermal",
+        "empty_label",
+        "labelling stops about 215 frames in: about 86% of the empty-label "
+        "frames show people with no box (#49, 95% interval 70.6 to 93.7)",
+    ),
+)
+
 ImageSize = Callable[[str], tuple[int, int]]
 Record = dict[str, object]
 
@@ -127,6 +160,7 @@ def write_folds(
     *,
     collections: Collections = WISARD_COLLECTIONS,
     seed: int = SEED,
+    overrides: Iterable[LabelOverride] = LABEL_OVERRIDES,
 ) -> dict[str, object]:
     """Build the folds from the manifests in ``manifests`` and write them.
 
@@ -142,7 +176,7 @@ def write_folds(
             f"folds with smaller counts. Run prepare without --collection."
         )
     files, summary = build_folds(
-        manifests, image_size, collections=collections, seed=seed
+        manifests, image_size, collections=collections, seed=seed, overrides=overrides
     )
     if destination.exists() and any(destination.iterdir()):
         if not (destination / SUMMARY).is_file():
@@ -171,9 +205,16 @@ def build_folds(
     *,
     collections: Collections = WISARD_COLLECTIONS,
     seed: int = SEED,
+    overrides: Iterable[LabelOverride] = LABEL_OVERRIDES,
 ) -> tuple[dict[str, list[Record]], dict[str, object]]:
     """Return every fold manifest, keyed by path relative to the folds root,
-    and a summary of what each holds."""
+    and a summary of what each holds.
+
+    Frames named by ``overrides`` are taken out of the labelled manifests of
+    their camera after the split, so which clip is held out for validation does
+    not change. They stay in the unlabelled pool.
+    """
+    overrides = list(overrides)
     pairs = [
         _annotate(r, "unlabelled", collections, image_size)
         for r in _read(manifests / ALL_PAIRS)
@@ -184,6 +225,20 @@ def build_folds(
             for r in _read(manifests / source)
         ]
         for view, source in SOURCES.items()
+    }
+    for override in overrides:
+        if override.rule not in RULES or override.camera not in ("rgb", "thermal"):
+            raise ValueError(f"Unknown label override: {override}")
+    overridden = {
+        view: {
+            image
+            for override in overrides
+            if override.camera == view
+            for image in _override_images(
+                views[view], override, lambda r: str(r["collection_id"])
+            )
+        }
+        for view in ("rgb", "thermal")
     }
     folds = sorted({str(r["site_day"]) for records in views.values() for r in records})
     unlabelled_only = sorted({str(r["site_day"]) for r in pairs} - set(folds))
@@ -196,6 +251,10 @@ def build_folds(
         view_summaries: dict[str, object] = {}
         for view in VIEWS:
             split, sources = _split(views[view], fold, cuts, excluded)
+            for part in (split.train, split.validation, split.test):
+                part[:] = [
+                    r for r in part if r.get("image") not in overridden.get(view, ())
+                ]
             subsets = _fraction_subsets(split.train, f"{seed}/{fold}/{view}")
             base = f"{fold}/{view}"
             for percent, subset in subsets.items():
@@ -229,9 +288,34 @@ def build_folds(
         "block_frames": BLOCK_FRAMES,
         "folds": folds,
         "never_test": unlabelled_only,
+        "label_overrides": [
+            {
+                "collection_id": o.collection_id,
+                "camera": o.camera,
+                "rule": o.rule,
+                "reason": o.reason,
+                "frames": len(
+                    _override_images(
+                        views[o.camera], o, lambda r: str(r["collection_id"])
+                    )
+                ),
+            }
+            for o in overrides
+        ],
         "per_fold": fold_summaries,
     }
     return files, summary
+
+
+def _override_images(
+    records: Iterable[dict], override: LabelOverride, clip_of: Callable[[dict], str]
+) -> set[str]:
+    """Images of ``records`` that ``override`` names, by the rule it states."""
+    return {
+        str(r["image"])
+        for r in records
+        if clip_of(r) == override.collection_id and not r["boxes"]
+    }
 
 
 def _split(
@@ -455,6 +539,7 @@ def check_folds(
     image_size: ImageSize,
     *,
     collections: Collections = WISARD_COLLECTIONS,
+    overrides: Iterable[LabelOverride] = LABEL_OVERRIDES,
 ) -> CheckReport:
     """Verify the fold manifests on disk, from the files themselves.
 
@@ -467,8 +552,12 @@ def check_folds(
     subsets are nested and drawn from training; that training and unlabelled
     frames stay more than MIN_GAP_FRAMES from validation frames of the same
     clip, whatever gap folds.json records; and that the files are rebuilt
-    byte for byte from the seed in folds.json.
+    byte for byte from the seed in folds.json. Each label override is applied:
+    its frames, found again in the source manifest by clip directory and empty
+    label, are in no manifest of its camera and are in the unlabelled pool of
+    every fold whose test site-day is another one; folds.json records it.
     """
+    overrides = list(overrides)
     report = CheckReport()
     problems = report.problems
     state = source_state(manifests)
@@ -502,6 +591,25 @@ def check_folds(
         f"folds: {', '.join(on_disk)}; never a test set: {', '.join(never) or 'none'}"
     )
 
+    overridden = {
+        o: {
+            image_paths(r)[0]
+            for r in sources[o.camera]
+            if where(image_paths(r)[0])[0] == o.collection_id and not r["boxes"]
+        }
+        for o in overrides
+    }
+    recorded = {
+        (r["collection_id"], r["camera"], r["rule"]): r["frames"]
+        for r in summary.get("label_overrides", [])
+    }
+    for o, images in overridden.items():
+        if recorded.get((o.collection_id, o.camera, o.rule)) != len(images):
+            problems.append(
+                f"{SUMMARY} does not record overridden {o.camera} frames of "
+                f"{o.collection_id}: {len(images)} found in the source manifest"
+            )
+
     checked_images = 0
     closest = math.inf
     for fold in on_disk:
@@ -528,15 +636,41 @@ def check_folds(
                 problems.append(f"{fold}/{name} holds images of test site-day {fold}")
             if images & test_images:
                 problems.append(f"{fold}/{name} shares images with the test set")
+        for o, images in overridden.items():
+            held_in = {
+                name: {i for r in records for i in image_paths(r)} & images
+                for name, records in views[o.camera].items()
+            }
+            for name, found in held_in.items():
+                if found:
+                    problems.append(
+                        f"{fold}/{o.camera}/{name} holds {len(found)} overridden "
+                        f"frames of {o.collection_id}"
+                    )
+            if site_day(o.collection_id) != fold:
+                in_pool = {str(r[f"{o.camera}_image"]) for r in pool} & images
+                if in_pool != images:
+                    problems.append(
+                        f"{fold}/{UNLABELLED} lacks {len(images - in_pool)} "
+                        f"overridden {o.camera} frames of {o.collection_id} "
+                        f"from the pool"
+                    )
         for view, files in views.items():
             test = files[TEST]
             other_days = {site_day(i) for r in test for i in image_paths(r)} - {fold}
             if other_days:
                 problems.append(f"{fold}/{view}/{TEST} holds {sorted(other_days)}")
+            skipped = {
+                i
+                for o, images in overridden.items()
+                if o.camera == view
+                for i in images
+            }
             expected = sorted(
                 image_paths(r)[0]
                 for r in sources[view]
                 if site_day(image_paths(r)[0]) == fold
+                and image_paths(r)[0] not in skipped
             )
             if sorted(image_paths(r)[0] for r in test) != expected:
                 problems.append(
@@ -575,7 +709,11 @@ def check_folds(
                         )
 
     rebuilt, rebuilt_summary = build_folds(
-        manifests, image_size, collections=collections, seed=int(summary["seed"])
+        manifests,
+        image_size,
+        collections=collections,
+        seed=int(summary["seed"]),
+        overrides=overrides,
     )
     on_disk_files = {str(p.relative_to(folds_dir)) for p in folds_dir.rglob("*.jsonl")}
     if on_disk_files != set(rebuilt):
@@ -601,6 +739,11 @@ def check_folds(
         + ", all drawn from training",
         f"training and unlabelled frames are more than {gap} frames from "
         f"validation in the same clip (closest: {closest} frames)",
+        *[
+            f"override {o.collection_id} {o.camera} {o.rule}: {len(images):,} frames "
+            f"in no {o.camera} manifest, in the pool of every other fold"
+            for o, images in overridden.items()
+        ],
         f"{len(rebuilt)} manifests rebuilt byte for byte from seed {summary['seed']}",
     ]
     return report
