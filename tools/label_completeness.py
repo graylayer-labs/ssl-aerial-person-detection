@@ -99,7 +99,7 @@ def make_sheet(source: Path, entry: dict, out: Path) -> None:
     qh = round(qw * h / w)
     sheet = Image.new("RGB", (PANEL_WIDTH, HEADER + qh + 2 * qh), (30, 30, 30))
 
-    overview = image.resize((qw, qh), Image.LANCZOS)
+    overview = image.resize((qw, qh), Image.Resampling.LANCZOS)
     od = ImageDraw.Draw(overview)
     for box in _boxes_px(entry["boxes"], qw, qh):
         od.rectangle(box, outline=(255, 0, 0), width=2)
@@ -110,7 +110,7 @@ def make_sheet(source: Path, entry: dict, out: Path) -> None:
     for qx, qy in [(0, 0), (1, 0), (0, 1), (1, 1)]:
         sx0, sy0 = round(qx * w / 2), round(qy * h / 2)
         crop = image.crop((sx0, sy0, round((qx + 1) * w / 2), round((qy + 1) * h / 2)))
-        crop = crop.resize((qw, qh), Image.LANCZOS)
+        crop = crop.resize((qw, qh), Image.Resampling.LANCZOS)
         cd = ImageDraw.Draw(crop)
         for x0, y0, x1, y1 in _boxes_px(entry["boxes"], w, h):
             cd.rectangle(
