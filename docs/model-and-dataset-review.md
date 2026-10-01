@@ -5,7 +5,25 @@ Decision note for issue #5. Written 2026-10-01 by the lead from a survey by the
 the primary sources on 2026-10-01. Where the two disagreed, the verified fact
 is used and the correction is noted.
 
-## Decision
+## Decision changed, 2026-10-01
+
+The owner chose not to start on a Meta model: "yes, go with SigLIP 2 first".
+The starting backbone is therefore **SigLIP 2** (Google, Apache-2.0, no
+gated download; patch size 16; the base model at 512 pixels is
+`google/siglip2-base-patch16-512`, and the family includes variable-resolution
+"NaFlex" variants that may suit tiling). **EVA-02** (BAAI, MIT) is the second
+non-Meta option, and **DINOv2** stays as a comparison point. The next
+milestone compares backbones, so the order is a starting point and not a
+verdict. Everything below this section is the analysis as written on
+2026-10-01 before that choice; its facts still hold.
+
+Verified at the source on 2026-10-01: the SigLIP 2 licence line on the
+Hugging Face page reads `apache-2.0`, with no gating; the paper is dated
+2025-02-20. Not yet verified: EVA-02's page needed a login; its licence is
+reported as MIT elsewhere. Neither model has published evidence on thermal
+input or on tiny people; the same was true of DINOv3.
+
+## Original decision
 
 Start from **DINOv3**, kept frozen, in three sizes:
 

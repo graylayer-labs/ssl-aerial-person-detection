@@ -42,8 +42,8 @@ a result will rest on was checked first. The
   [WiSARD dataset](https://sites.google.com/uw.edu/wisard/): 14,834 paired
   RGB and thermal frames from 17 verified clips, 5,739 labelled in both
   cameras, split into four folds that each leave one site out.
-- Starting model: DINOv2, kept frozen, moving to DINOv3 once its licence is
-  accepted.
+- Starting model: SigLIP 2, kept frozen, with EVA-02 and DINOv2 as
+  comparisons.
 - No model results exist yet. The next milestone measures the off-the-shelf
   baseline.
 

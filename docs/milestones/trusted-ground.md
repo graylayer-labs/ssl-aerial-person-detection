@@ -26,7 +26,7 @@ work of making those four things true, and of writing down what was found.
 | Reproducibility | Nothing recorded which code or data a run used | A run refuses to start unless the code is a clean commit on `main` and the data it reads matches a committed checksum list. [#23](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/23), [#38](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/38) |
 | Labels | Assumed complete | About 1.0% of people in RGB and 5.7% in thermal have no box, on a sample of 198 frames. One thermal clip is largely unlabelled: about 86% of its "empty" frames show people. [#37](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/37), [#49](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/49) |
 | Storage | The dataset three times over on a laptop with 20 GB free | Once locally, once in S3 with versioning; 81 GB freed. [#7](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/7) |
-| Starting model | Undecided | DINOv2 now, DINOv3 once its licence is accepted, SigLIP 2 as the non-Meta comparison. [#5](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/5) |
+| Starting model | Undecided | SigLIP 2 (Google, Apache-2.0, no sign-up), with EVA-02 second and DINOv2 as a comparison. The owner chose a non-Meta model. [#5](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/5) |
 
 Every number above has its source in the linked issue's closing comment or in
 the review note it names. No model was trained, by design.
@@ -77,8 +77,6 @@ for the small model alone would take about 94 GB.
 
 - The owner's check of 37 frames the agents could not decide on
   ([#37](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/37)).
-- The DINOv3 licence, which is the owner's step
-  ([#5](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/5)).
 - Treating the mostly unlabelled thermal clip's empty frames as unlabelled
   data in the folds
   ([#53](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/53)).
