@@ -66,6 +66,7 @@ SOURCES = {
     "thermal": "thermal_labelled.jsonl",
 }
 ALL_PAIRS = "all_pairs.jsonl"
+QUALITY = "data_quality.json"
 
 ImageSize = Callable[[str], tuple[int, int]]
 Record = dict[str, object]
@@ -106,6 +107,19 @@ def image_paths(record: Record) -> list[str]:
     ]
 
 
+def source_state(manifests: Path) -> str:
+    """Whether ``manifests`` is "full", a "subset", or "unmarked".
+
+    Unmarked means data_quality.json is missing or has no ``subset`` key, as
+    manifests made before the key existed.
+    """
+    path = manifests / QUALITY
+    subset = json.loads(path.read_text()).get("subset") if path.is_file() else None
+    if subset is None:
+        return "unmarked: no subset key in " + QUALITY
+    return "subset" if subset else "full"
+
+
 def write_folds(
     manifests: Path,
     destination: Path,
@@ -120,6 +134,13 @@ def write_folds(
     folds.json); refuses any other non-empty destination. Returns the summary
     also written to folds.json.
     """
+    state = source_state(manifests)
+    if state != "full":
+        raise ValueError(
+            f"{manifests} is not a full set of manifests ({state}): {QUALITY} must "
+            f"say subset: false. Folds from a subset would look like the full "
+            f"folds with smaller counts. Run prepare without --collection."
+        )
     files, summary = build_folds(
         manifests, image_size, collections=collections, seed=seed
     )
@@ -450,6 +471,10 @@ def check_folds(
     """
     report = CheckReport()
     problems = report.problems
+    state = source_state(manifests)
+    report.lines.append(f"source manifests: {state}")
+    if state != "full":
+        problems.append(f"source manifests are not full ({state})")
     summary = json.loads((folds_dir / SUMMARY).read_text())
     gap = MIN_GAP_FRAMES
     if int(summary["gap_frames"]) < gap:
