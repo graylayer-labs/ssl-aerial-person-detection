@@ -377,25 +377,28 @@ def load_pairs_by_collection(
 class _Labels:
     """Loads each label file once and counts clipped boxes per collection."""
 
-    def __init__(self) -> None:
+    def __init__(self, collection_ids: Iterable[str]) -> None:
         self.boxes: dict[Path, list[dict[str, float]]] = {}
-        self.stats: dict[str, dict[str, int]] = {}
+        self.dropped: dict[Path, int] = {}
+        # A clip with no labels still gets zeros, so it is not missing.
+        self.stats: dict[str, dict[str, int]] = {
+            cid: {
+                "rgb_clipped": 0,
+                "rgb_dropped": 0,
+                "thermal_clipped": 0,
+                "thermal_dropped": 0,
+            }
+            for cid in collection_ids
+        }
 
     def load(self, path: Path, collection_id: str, camera: str) -> list[dict]:
         if path not in self.boxes:
             counts: dict[str, int] = {}
             self.boxes[path] = [asdict(box) for box in load_boxes(path, counts)]
-            clip_stats = self.stats.setdefault(
-                collection_id,
-                {
-                    "rgb_clipped": 0,
-                    "rgb_dropped": 0,
-                    "thermal_clipped": 0,
-                    "thermal_dropped": 0,
-                },
-            )
+            self.dropped[path] = counts.get("boxes_dropped", 0)
+            clip_stats = self.stats[collection_id]
             clip_stats[f"{camera}_clipped"] += counts.get("boxes_clipped", 0)
-            clip_stats[f"{camera}_dropped"] += counts.get("boxes_dropped", 0)
+            clip_stats[f"{camera}_dropped"] += self.dropped[path]
         return self.boxes[path]
 
 
@@ -412,7 +415,8 @@ def prepare_manifests(
     - full.jsonl: pairs labelled in both cameras
     - rgb_labelled.jsonl, thermal_labelled.jsonl: every frame of a listed
       directory that has a label file for that camera, whether or not its
-      partner has one (for detection on one camera)
+      partner has one (for detection on one camera); each carries
+      boxes_dropped, the boxes of its label file that were dropped
     - data_quality.json: counts per collection, clipped boxes per collection,
       and the directories that were not paired
 
@@ -429,7 +433,7 @@ def prepare_manifests(
     destination.mkdir(parents=True, exist_ok=True)
     for old_split in ("train.jsonl", "validation.jsonl", "test.jsonl"):
         (destination / old_split).unlink(missing_ok=True)
-    labels = _Labels()
+    labels = _Labels(collections)
 
     all_pairs_unlabeled = load_pairs(
         source, labelled_only=False, collections=collections
@@ -503,6 +507,10 @@ def _camera_records(
                         "collection_id": cid,
                         "image": str(image.relative_to(source)),
                         "boxes": labels.load(label_file, cid, camera),
+                        # Boxes with no area left after clipping, so that a
+                        # label file that lost all its boxes is not read as an
+                        # empty one.
+                        "boxes_dropped": labels.dropped[label_file],
                     }
                 )
     return frames

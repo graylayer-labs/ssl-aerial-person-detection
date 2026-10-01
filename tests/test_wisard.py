@@ -368,6 +368,51 @@ def test_writes_one_manifest_per_camera_and_counts_boxes_once(tmp_path: Path) ->
     }
 
 
+def test_clips_without_labels_have_zero_box_counts(tmp_path: Path) -> None:
+    rgb, thermal = _flight_dirs(tmp_path)
+    for number in range(40):
+        (rgb / f"flight_VIS_0001_{number:05d}.jpg").touch()
+        (thermal / f"flight_IR_0002_{number:05d}.jpg").touch()
+    out = tmp_path / "out"
+
+    prepare_manifests(tmp_path, out, collections=FLIGHT)
+
+    quality = json.loads((out / "data_quality.json").read_text())
+    assert quality["boxes"] == {
+        "flight_0001": {
+            "rgb_clipped": 0,
+            "rgb_dropped": 0,
+            "thermal_clipped": 0,
+            "thermal_dropped": 0,
+        }
+    }
+
+
+def test_a_label_file_that_lost_all_its_boxes_differs_from_an_empty_one(
+    tmp_path: Path,
+) -> None:
+    rgb, thermal = _flight_dirs(tmp_path)
+    for number in range(40):
+        (rgb / f"flight_VIS_0001_{number:05d}.jpg").touch()
+        (thermal / f"flight_IR_0002_{number:05d}.jpg").touch()
+    (rgb / "flight_VIS_0001_00000.txt").write_text("")  # no people in frame
+    (rgb / "flight_VIS_0001_00001.txt").write_text("0 1.2 0.5 0.1 0.2\n")  # outside
+    (rgb / "flight_VIS_0001_00002.txt").write_text("0 0.5 0.5 0.1 0.2\n")
+    out = tmp_path / "out"
+
+    prepare_manifests(tmp_path, out, collections=FLIGHT)
+
+    by_name = {
+        Path(r["image"]).name: r for r in _records(out / "rgb_labelled.jsonl")
+    }
+    empty = by_name["flight_VIS_0001_00000.jpg"]
+    dropped = by_name["flight_VIS_0001_00001.jpg"]
+    kept = by_name["flight_VIS_0001_00002.jpg"]
+    assert (empty["boxes"], empty["boxes_dropped"]) == ([], 0)
+    assert (dropped["boxes"], dropped["boxes_dropped"]) == ([], 1)
+    assert (len(kept["boxes"]), kept["boxes_dropped"]) == (1, 0)
+
+
 @pytest.mark.parametrize(
     ("name", "frame"),
     [
