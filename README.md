@@ -1,5 +1,7 @@
 # Aerial person detection for search and rescue
 
+[![ci](https://github.com/graylayer-labs/ssl-aerial-person-detection/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/graylayer-labs/ssl-aerial-person-detection/actions/workflows/ci.yml)
+
 Detecting people in drone footage from RGB and thermal cameras, when footage is
 plentiful and labels are scarce.
 
