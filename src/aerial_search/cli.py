@@ -28,6 +28,7 @@ DATASETS = {WISARD_SAMPLE.name: WISARD_SAMPLE, WISARD_FULL.name: WISARD_FULL}
 
 
 SEED = 7  # both experiments seed with 7; recorded in run.json
+VIEW = "paired"  # both experiments read the fold's paired-view manifests
 
 
 def _add_run_flags(parser: argparse.ArgumentParser) -> None:
@@ -61,6 +62,8 @@ def _start_run(args: argparse.Namespace, default_name: str) -> Path:
             scratch=args.scratch,
             inputs=inputs,
             checkpoint=getattr(args, "ssl_checkpoint", None),
+            fold=args.fold,
+            view=VIEW,
         )
     except ProvenanceError as error:
         raise SystemExit(f"refusing to start: {error}") from error
@@ -68,7 +71,7 @@ def _start_run(args: argparse.Namespace, default_name: str) -> Path:
 
 def _fold_manifests(args: argparse.Namespace) -> Path:
     """The paired-view manifests of the fold named by --fold."""
-    return view_dir(args.manifests / "folds", args.fold, "paired")
+    return view_dir(args.manifests / "folds", args.fold, VIEW)
 
 
 def _image_size(source: Path) -> ImageSize:

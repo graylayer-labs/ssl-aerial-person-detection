@@ -19,6 +19,11 @@ Inputs (`inputs`, `checkpoint`) are recorded with their SHA-256. A normal run
 that starts from a checkpoint needs a `run.json` beside it with `scratch`
 false; its name and commit are recorded as `parent`.
 
+A run on a fold records `fold` (the test site-day) and `view` (the label view)
+at the top level of `run.json`. A normal run refuses a checkpoint whose run
+recorded another fold or view, or none: pretraining in another fold has seen
+this fold's test site-day. A scratch run may, and records the mismatch.
+
 Runs are never overwritten. If `outputs/<run-name>/` already exists,
 `start_run` raises `ProvenanceError`; choose another run name.
 """
@@ -149,8 +154,14 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _parent(checkpoint: Path, scratch: bool) -> dict[str, Any] | None:
-    """The run that produced `checkpoint`. A normal run requires a normal one."""
+def _parent(
+    checkpoint: Path,
+    scratch: bool,
+    fold: str | None = None,
+    view: str | None = None,
+) -> dict[str, Any] | None:
+    """The run that produced `checkpoint`. A normal run requires a normal one,
+    from the same fold and label view."""
     record_path = checkpoint.parent / "run.json"
     try:
         record = json.loads(record_path.read_text())
@@ -158,6 +169,8 @@ def _parent(checkpoint: Path, scratch: bool) -> dict[str, Any] | None:
             "run_name": record.get("run_name"),
             "commit": record.get("commit"),
             "path": str(record_path),
+            "fold": record.get("fold"),
+            "view": record.get("view"),
         }
         is_scratch = record.get("scratch") is not False
         status = record.get("status")
@@ -182,6 +195,20 @@ def _parent(checkpoint: Path, scratch: bool) -> dict[str, Any] | None:
             f'({record_path} has "status": {json.dumps(status)}). Use a '
             "checkpoint from a completed run, or pass --scratch."
         )
+    mismatch = [
+        f"checkpoint {checkpoint} comes from a run on {name} "
+        f"{json.dumps(parent[name])}, but this run is on {name} {json.dumps(mine)}"
+        for name, mine in (("fold", fold), ("view", view))
+        if parent[name] != mine
+    ]
+    if mismatch and not scratch:
+        raise ProvenanceError(
+            "; ".join(mismatch)
+            + ". Pretraining in another fold has seen this fold's test site-day. "
+            "Use a checkpoint from a run on the same fold and view, or pass "
+            "--scratch."
+        )
+    parent["mismatch"] = mismatch
     return parent
 
 
@@ -196,11 +223,15 @@ def start_run(
     repo: Path | None = None,
     inputs: Sequence[Path] = (),
     checkpoint: Path | None = None,
+    fold: str | None = None,
+    view: str | None = None,
 ) -> Path:
     """Check provenance, create `outputs/[scratch-]<name>/`, write `run.json`.
 
     `repo` is for tests; by default the repository holding this module is
-    used. Returns the run directory, the only place the experiment may write.
+    used. `fold` and `view` name the fold's test site-day and label view, and
+    must match those of the checkpoint's run. Returns the run directory, the
+    only place the experiment may write.
     Raises `ProvenanceError` if a normal run is not from a clean tree on main,
     if git cannot tell, if a checkpoint has no normal parent run, or if the
     directory exists.
@@ -248,7 +279,7 @@ def start_run(
     recorded_inputs = [
         {"path": str(path), "sha256": _sha256(path)} for path in input_paths
     ]
-    parent = _parent(checkpoint, scratch) if checkpoint else None
+    parent = _parent(checkpoint, scratch, fold, view) if checkpoint else None
 
     directory = root / "outputs" / (f"{SCRATCH_PREFIX}{name}" if scratch else name)
     try:
@@ -264,6 +295,8 @@ def start_run(
         "scratch": scratch,
         **{k: v for k, v in state.items() if k != "main_error"},
         "main_error": state["main_error"],
+        "fold": fold,
+        "view": view,
         "config": config,
         "seed": seed,
         "inputs": recorded_inputs,

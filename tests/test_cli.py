@@ -180,6 +180,7 @@ def test_ssl_run_writes_into_run_dir_and_completes(tmp_path, monkeypatch) -> Non
     data = json.loads((seen["output"] / "run.json").read_text())
     assert data["status"] == "completed"
     assert data["seed"] == seen["seed"]
+    assert (data["fold"], data["view"]) == ("220109_Baker", "paired")
     assert {i["path"] for i in data["inputs"]} == {
         str(manifests / "folds" / "220109_Baker" / "paired" / "train_100pct.jsonl"),
         str(manifests / "folds" / "220109_Baker" / "paired" / "validation.jsonl"),
@@ -249,3 +250,49 @@ def test_detector_gets_seed_and_run_dir(tmp_path, monkeypatch) -> None:
     )
     assert seen["output"] == repo / "outputs" / "detector-rgb-scratch"
     assert seen["seed"] == cli.SEED
+
+
+def test_detector_refuses_a_checkpoint_pretrained_in_another_fold(
+    tmp_path, monkeypatch
+) -> None:
+    import json
+
+    import pytest
+
+    from aerial_search import cli
+    from aerial_search.experiments import detection_experiment
+
+    repo, manifests = _fake_repo(tmp_path, monkeypatch)
+    parent = tmp_path / "ssl-mterie"
+    parent.mkdir()
+    (parent / "model.pt").write_text("weights")
+    (parent / "run.json").write_text(
+        json.dumps(
+            {
+                "run_name": "ssl-mterie",
+                "scratch": False,
+                "commit": "abc",
+                "status": "completed",
+                "fold": "210417_MtErie",
+                "view": "paired",
+            }
+        )
+    )
+    monkeypatch.setattr(
+        detection_experiment, "run_detection_experiment", lambda *a, **k: None
+    )
+    with pytest.raises(SystemExit, match="210417_MtErie.*220109_Baker"):
+        cli.main(
+            [
+                "train-detector",
+                "rgb",
+                "ssl",
+                "--manifests",
+                str(manifests),
+                "--fold",
+                "220109_Baker",
+                "--ssl-checkpoint",
+                str(parent / "model.pt"),
+            ]
+        )
+    assert not (repo / "outputs").exists()

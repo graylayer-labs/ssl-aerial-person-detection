@@ -44,6 +44,8 @@ def run(
     scratch: bool = False,
     inputs: tuple[Path, ...] = (),
     checkpoint: Path | None = None,
+    fold: str | None = None,
+    view: str | None = None,
 ) -> Path:
     return start_run(
         name,
@@ -55,6 +57,8 @@ def run(
         repo=repo,
         inputs=inputs,
         checkpoint=checkpoint,
+        fold=fold,
+        view=view,
     )
 
 
@@ -226,7 +230,9 @@ def test_inputs_are_recorded_with_sha256(repo: Path, tmp_path: Path) -> None:
     ]
 
 
-def make_checkpoint(directory: Path, scratch: bool, status: str = "completed") -> Path:
+def make_checkpoint(
+    directory: Path, scratch: bool, status: str = "completed", **fields: str
+) -> Path:
     directory.mkdir()
     (directory / "model.pt").write_text("weights")
     (directory / "run.json").write_text(
@@ -236,10 +242,67 @@ def make_checkpoint(directory: Path, scratch: bool, status: str = "completed") -
                 "scratch": scratch,
                 "commit": "abc",
                 "status": status,
+                **fields,
             }
         )
     )
     return directory / "model.pt"
+
+
+def test_fold_and_view_are_recorded_at_the_top_level(repo: Path) -> None:
+    data = read(run(repo, fold="220109_Baker", view="paired"))
+    assert data["fold"] == "220109_Baker"
+    assert data["view"] == "paired"
+
+
+def test_checkpoint_from_the_same_fold_and_view_is_accepted(
+    repo: Path, tmp_path: Path
+) -> None:
+    ckpt = make_checkpoint(
+        tmp_path / "p", scratch=False, fold="220109_Baker", view="paired"
+    )
+    data = read(run(repo, checkpoint=ckpt, fold="220109_Baker", view="paired"))
+    assert data["parent"]["fold"] == "220109_Baker"
+    assert data["parent"]["mismatch"] == []
+
+
+def test_checkpoint_from_another_fold_is_refused(repo: Path, tmp_path: Path) -> None:
+    # Pretraining in the MtErie fold saw Baker; a detector scored on Baker
+    # must not start from it.
+    ckpt = make_checkpoint(
+        tmp_path / "p", scratch=False, fold="210417_MtErie", view="paired"
+    )
+    with pytest.raises(ProvenanceError, match="210417_MtErie.*220109_Baker"):
+        run(repo, checkpoint=ckpt, fold="220109_Baker", view="paired")
+    assert not (repo / "outputs").exists()
+
+
+def test_checkpoint_from_another_view_is_refused(repo: Path, tmp_path: Path) -> None:
+    ckpt = make_checkpoint(
+        tmp_path / "p", scratch=False, fold="220109_Baker", view="rgb"
+    )
+    with pytest.raises(ProvenanceError, match="view.*rgb.*paired"):
+        run(repo, checkpoint=ckpt, fold="220109_Baker", view="paired")
+
+
+def test_checkpoint_whose_run_has_no_fold_is_refused(
+    repo: Path, tmp_path: Path
+) -> None:
+    ckpt = make_checkpoint(tmp_path / "p", scratch=False)
+    with pytest.raises(ProvenanceError, match="fold null.*220109_Baker"):
+        run(repo, checkpoint=ckpt, fold="220109_Baker", view="paired")
+
+
+def test_scratch_run_may_cross_folds_and_records_it(repo: Path, tmp_path: Path) -> None:
+    ckpt = make_checkpoint(
+        tmp_path / "p", scratch=False, fold="210417_MtErie", view="paired"
+    )
+    data = read(
+        run(repo, scratch=True, checkpoint=ckpt, fold="220109_Baker", view="paired")
+    )
+    assert data["parent"]["fold"] == "210417_MtErie"
+    assert len(data["parent"]["mismatch"]) == 1
+    assert "210417_MtErie" in data["parent"]["mismatch"][0]
 
 
 def test_normal_run_accepts_checkpoint_from_normal_run(
