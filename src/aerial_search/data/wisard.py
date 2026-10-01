@@ -138,6 +138,9 @@ _IMAGE_SUFFIXES = {".jpg", ".jpeg"}
 
 def select_collections(ids: Iterable[str]) -> dict[str, Collection]:
     """Return the named WiSARD collections, to prepare a deliberate subset."""
+    ids = list(ids)
+    if not ids:
+        raise ValueError("No collections selected")
     unknown = [cid for cid in ids if cid not in WISARD_COLLECTIONS]
     if unknown:
         raise KeyError(f"Unknown WiSARD collections: {', '.join(unknown)}")
@@ -417,6 +420,8 @@ def prepare_manifests(
 
     Raises FileNotFoundError if a listed directory is missing.
     """
+    if not collections:
+        raise ValueError("No collections to prepare")
     report = pairing_report(source, collections)
     destination.mkdir(parents=True, exist_ok=True)
     for old_split in ("train.jsonl", "validation.jsonl", "test.jsonl"):

@@ -159,6 +159,14 @@ def test_select_collections_names_a_subset_explicitly() -> None:
         select_collections(["no_such_clip"])
 
 
+def test_an_empty_selection_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="No collections"):
+        select_collections([])
+    with pytest.raises(ValueError, match="No collections"):
+        prepare_manifests(tmp_path, tmp_path / "out", collections={})
+    assert not (tmp_path / "out").exists()
+
+
 def test_rejects_file_from_another_clip(tmp_path: Path) -> None:
     rgb, thermal = _flight_dirs(tmp_path)
     for number in range(40):
