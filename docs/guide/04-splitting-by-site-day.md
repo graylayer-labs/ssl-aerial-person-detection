@@ -49,10 +49,10 @@ Baker loses 250 of 2,180 frames and Carnation 0023 loses 250 of 739 in the
 paired and thermal views.
 
 **One-percent labels are a handful of blocks.** At 1%, a fold has 3 to 8 blocks
-of 10 frames, which is 30 to 80 labelled frames. In five of the twelve
-fold-views, the 1% subset holds only two of the three training site-days. At
-5%, which is 130 to 370 frames, every subset holds all three
-([folds review][folds-review]). A 1% result needs several seeds.
+of 10 frames, which is 30 to 80 labelled frames, and in five of the twelve
+fold-views the subset holds only two of the three training site-days. At 5%,
+130 to 370 frames, every subset holds all three ([folds review][folds-review]).
+A 1% result needs several seeds.
 
 **What the test sets hold, by person size**, paired view, in boxes
 ([folds review][folds-review]):
@@ -147,9 +147,8 @@ it is for choosing settings and never for quoting.
 
 - **Test the check, not just the builder.** The reviewer's corruptions caught
   what a green check did not ([#3 handoff][i3-handoff]).
-- **Measure before fixing a number.** The 50-frame gap was a guess.
-  [`tools/frame_similarity_lags.py`](../../tools/frame_similarity_lags.py)
-  gave 250.
+- **Measure before fixing a number.** The 50-frame gap was a guess;
+  [`tools/frame_similarity_lags.py`](../../tools/frame_similarity_lags.py) gave 250.
 - **Known and left alone:** a block of 10 labelled records can span a hole in
   the labels of up to 148 frame numbers ([#3 handoff][i3-handoff]).
 

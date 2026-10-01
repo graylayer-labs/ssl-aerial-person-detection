@@ -33,11 +33,10 @@ running the two old versions of the code on the raw data
   arbitrary pair each, and three produced none ([pairing review][pairing-review]).
 
 The parser bug was found while fixing the lint failures of [#1]. About 53% of
-image files had names it could not read, and it raised no error
-([#2 finding][i2-finding]). Files it could not read all landed on one key,
-`None`, so a whole directory collapsed to one wrong pair. The counts in that
-finding (39,226 files with 8 digit numbers, 52,388 with 5) include two copies
-of the dataset, which [#7] later removed. The 53% is unaffected
+image files had names it could not read, and it raised no error. All of them
+landed on one key, so a directory collapsed to one wrong pair
+([#2 finding][i2-finding]). That finding's file counts include two copies of
+the dataset, which [#7] later removed. The 53% is unaffected
 ([#7 finding][i7-finding]).
 
 **The fixed rule** ([pairing review][pairing-review]):
@@ -73,16 +72,14 @@ because the tool that measures lag cannot choose between neighbouring lags
 Three checks, each weaker alone ([pairing review][pairing-review]):
 
 1. **Camera motion.** A pan moves both images at once, so the frame-to-frame
-   shift is a signal the two cameras share. The best-matching lag is within two
-   frames for the right clips. As a control, all 82 wrong RGB and thermal
-   directory pairs from the same days score at most r=0.16 within two frames of
-   lag 0.
+   shift is a signal the cameras share. For the right clips the best-matching
+   lag is within two frames. As a control, all 82 wrong directory pairs from
+   the same days score at most r=0.16 within two frames of lag 0.
 2. **Clip numbers.** A test enforces that each thermal clip is the RGB clip
-   plus one. It rejects all 115 wrong pairings of RGB and thermal directories
-   on the same days.
-3. **Contact sheets.** One image per clip, with RGB beside thermal at the
-   start, middle and end. In all 17 the same people and terrain appear in
-   both. The owner looked at them and accepted the pairing ([#2 handoff][i2-handoff]).
+   plus one. It rejects all 115 wrong pairings on the same days.
+3. **Contact sheets.** One image per clip, RGB beside thermal at the start,
+   middle and end. In all 17 the same people and terrain appear in both. The
+   owner looked at them and accepted the pairing ([#2 handoff][i2-handoff]).
 
 ## Decisions and why
 
@@ -93,8 +90,6 @@ Three checks, each weaker alone ([pairing review][pairing-review]):
 - **Correct `MtErie_0003` by one frame.** Its numbering starts at 0 for RGB and
   1 for thermal.
 - **Use the dataset's boxes as they are** ([#2 handoff][i2-handoff]).
-- **Report and stop on anything odd.** Unparseable names and duplicate numbers
-  raise an error. Nothing is paired silently.
 
 ## How to reproduce
 

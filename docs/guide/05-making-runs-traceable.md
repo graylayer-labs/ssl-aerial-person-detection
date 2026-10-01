@@ -115,7 +115,8 @@ On 2026-10-01 it printed `OK   data/raw/wisard-full matches ... (root hash
 seconds. `CLAUDE.md` says hashing all of it takes about 25.
 
 The first message is shown without the list of changed files that follows it.
-Both runs wrote nothing under `outputs/`. The manifests are those of chapter 4.
+Both runs wrote nothing under `outputs/`. We pointed `--manifests` at ones made
+with `prepare --scratch`, which a normal run would also refuse.
 The tests that pin each rule are in `tests/test_run.py`:
 
 ```bash
