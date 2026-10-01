@@ -308,6 +308,8 @@ Keep it short, and keep one home for each fact.
 | Why a technical choice was made | `docs/decisions.md`, one line each |
 | The evidence behind a decision, when it is long | `docs/<topic>-review.md` |
 | What a milestone found | `docs/milestones/<name>.md`, created with the first write-up |
+| How the project was built, step by step, with its mistakes | `docs/guide/`, kept current with `/guide` |
+| A short, result-led post for a general reader | `docs/blog/`, drafted with `/blog` for the owner to edit |
 
 Write a decision down when a future agent would otherwise have to guess or
 re-derive it. Format: `YYYY-MM-DD · chose X over Y · reason`.
@@ -407,6 +409,7 @@ Agents that are not tied to a label:
 | `researcher` | Sonnet | Surveys with cited sources. Changes nothing |
 | `process-auditor` | Sonnet | Checks that protocols were followed; fixes process records |
 | `repo-janitor` | Haiku | Reports drift and clutter in the repo. Changes nothing |
+| `guide-writer` | Sonnet | Keeps `docs/guide/` current from closed issues; drafts blog posts. Writes only under `docs/guide/` and `docs/blog/` |
 
 ## Keeping the project honest
 
@@ -415,6 +418,8 @@ Agents that are not tied to a label:
 | `/tidy` | The repo: stale docs, dead code, stray files | End of every epic |
 | `/audit` | The process: trails, evidence, reviews, board, agent files | End of every epic, and after every five closed issues |
 | `/coldstart` | The instructions: can a new agent orient itself | After any change to this file, an agent, or a skill |
+| `/guide` | Nothing; it updates `docs/guide/` from closed issues, every number linked to its source | End of every epic, after the milestone write-up |
+| `/blog` | Nothing; it drafts a post from the guide and the milestone note, for the owner to edit and publish | End of every epic, after `/guide` |
 
 ## Reusable tooling
 
