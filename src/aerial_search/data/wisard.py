@@ -70,6 +70,9 @@ class PairingReport(TypedDict):
     """How the image directories under a dataset root were paired."""
 
     collections: dict[str, CollectionCounts]
+    # Directories of listed collections that were not selected for this run.
+    unselected_directories: list[str]
+    # Directories that no listed collection uses.
     unpaired_directories: list[str]
 
 
@@ -314,8 +317,9 @@ def pairing_report(
 ) -> PairingReport:
     """Describe how the image directories under root were paired.
 
-    Gives counts per collection and every image directory that was not
-    paired. Raises FileNotFoundError if a listed directory is missing.
+    Gives counts per collection, the directories of listed collections that
+    were not selected, and every image directory no listed collection uses.
+    Raises FileNotFoundError if a listed directory is missing.
     """
     grouped = _group_collections(root, collections)
     per_collection = {
@@ -323,12 +327,22 @@ def pairing_report(
         for cid, collection in collections.items()
     }
     used = {path.name for dirs in grouped.values() for path in dirs}
-    unpaired = sorted(
-        path.name
-        for path in root.iterdir()
-        if path.is_dir() and path.name not in used and any(path.glob("*.jp*g"))
-    )
-    return {"collections": per_collection, "unpaired_directories": unpaired}
+    unselected = {
+        name
+        for cid, c in WISARD_COLLECTIONS.items()
+        if cid not in collections
+        for name in (c.rgb_dir, c.thermal_dir)
+    } - used
+    unselected_present, unpaired = [], []
+    for path in sorted(root.iterdir()):
+        if not path.is_dir() or path.name in used or not any(path.glob("*.jp*g")):
+            continue
+        (unselected_present if path.name in unselected else unpaired).append(path.name)
+    return {
+        "collections": per_collection,
+        "unselected_directories": unselected_present,
+        "unpaired_directories": unpaired,
+    }
 
 
 def load_boxes(path: Path, stats: dict[str, int] | None = None) -> list[BoundingBox]:
@@ -417,18 +431,23 @@ def prepare_manifests(
       directory that has a label file for that camera, whether or not its
       partner has one (for detection on one camera); each carries
       boxes_dropped, the boxes of its label file that were dropped
-    - data_quality.json: counts per collection, clipped boxes per collection,
-      and the directories that were not paired
+    - data_quality.json: whether this is a subset and which collections it
+      holds, counts per collection, clipped boxes per collection, and the
+      directories that were left out or not paired
 
     Splits are not made here: they are by site-day, in folds/ (see
     aerial_search.data.folds). Split files left by an older version are
     removed, so nothing reads them by mistake. Returns the number of records
     in each manifest.
 
-    Raises FileNotFoundError if a listed directory is missing.
+    Raises FileNotFoundError if a listed directory is missing, and ValueError
+    if no collections are given or a subset would replace full manifests.
     """
     if not collections:
         raise ValueError("No collections to prepare")
+    subset = set(collections) != set(WISARD_COLLECTIONS)
+    if subset:
+        _refuse_to_replace_full_manifests(destination)
     report = pairing_report(source, collections)
     destination.mkdir(parents=True, exist_ok=True)
     for old_split in ("train.jsonl", "validation.jsonl", "test.jsonl"):
@@ -471,6 +490,8 @@ def prepare_manifests(
     with (destination / "data_quality.json").open("w") as f:
         json.dump(
             {
+                "subset": subset,
+                "selected_collections": list(collections),
                 "total_pairs": len(all_pairs_unlabeled),
                 "labeled_pairs": len(records),
                 "frames_skipped": len(all_pairs_unlabeled) - len(records),
@@ -488,6 +509,22 @@ def prepare_manifests(
         )
 
     return counts
+
+
+def _refuse_to_replace_full_manifests(destination: Path) -> None:
+    """Raise if destination holds manifests that are not marked as a subset."""
+    quality = destination / "data_quality.json"
+    if quality.exists():
+        marked = json.loads(quality.read_text()).get("subset") is True
+    else:
+        marked = not any(
+            (destination / name).exists() for name in ("all_pairs.jsonl", "full.jsonl")
+        )
+    if not marked:
+        raise ValueError(
+            f"{destination} holds full manifests, or manifests that do not say "
+            f"what they are; not writing a subset over them. Use another --output."
+        )
 
 
 def _camera_records(

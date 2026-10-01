@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from aerial_search.data import wisard
 from aerial_search.data.wisard import (
     WISARD_COLLECTIONS,
     Collection,
@@ -165,6 +166,67 @@ def test_an_empty_selection_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="No collections"):
         prepare_manifests(tmp_path, tmp_path / "out", collections={})
     assert not (tmp_path / "out").exists()
+
+
+def _two_clip_root(root: Path) -> dict[str, Collection]:
+    """Two listed clips and one unlisted directory, one frame each."""
+    clips = {
+        "a_0001": Collection("a_VIS_0001", "a_IR_0002", "0001", "0002"),
+        "b_0003": Collection("b_VIS_0003", "b_IR_0004", "0003", "0004"),
+    }
+    for c in clips.values():
+        for directory, clip in [(c.rgb_dir, c.rgb_clip), (c.thermal_dir, c.thermal_clip)]:
+            (root / directory).mkdir()
+            _touch(root / directory / f"{directory}_{clip}_00000.jpg")
+    (root / "stray_VIS_9").mkdir()
+    _touch(root / "stray_VIS_9" / "stray_9_00000.jpg")
+    return clips
+
+
+def test_a_subset_says_so_and_names_what_it_left_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clips = _two_clip_root(tmp_path)
+    monkeypatch.setattr(wisard, "WISARD_COLLECTIONS", clips)
+    full, subset = tmp_path / "full", tmp_path / "subset"
+
+    prepare_manifests(tmp_path, full, collections=clips)
+    prepare_manifests(tmp_path, subset, collections={"a_0001": clips["a_0001"]})
+
+    whole = json.loads((full / "data_quality.json").read_text())
+    part = json.loads((subset / "data_quality.json").read_text())
+    assert whole["subset"] is False
+    assert whole["selected_collections"] == ["a_0001", "b_0003"]
+    assert whole["unselected_directories"] == []
+    assert part["subset"] is True
+    assert part["selected_collections"] == ["a_0001"]
+    assert part["unselected_directories"] == ["b_IR_0004", "b_VIS_0003"]
+    assert part["unpaired_directories"] == ["stray_VIS_9"]
+
+
+def test_a_subset_is_not_written_over_full_manifests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clips = _two_clip_root(tmp_path)
+    monkeypatch.setattr(wisard, "WISARD_COLLECTIONS", clips)
+    out = tmp_path / "out"
+    prepare_manifests(tmp_path, out, collections=clips)
+    before = (out / "full.jsonl").read_text()
+
+    with pytest.raises(ValueError, match="full manifests"):
+        prepare_manifests(tmp_path, out, collections={"a_0001": clips["a_0001"]})
+
+    assert (out / "full.jsonl").read_text() == before
+    # Manifests with no record of what they are count as full.
+    (out / "data_quality.json").unlink()
+    with pytest.raises(ValueError, match="full manifests"):
+        prepare_manifests(tmp_path, out, collections={"a_0001": clips["a_0001"]})
+    # A subset may be rewritten, and a full set may replace it.
+    other = tmp_path / "other"
+    subset = {"a_0001": clips["a_0001"]}
+    prepare_manifests(tmp_path, other, collections=subset)
+    prepare_manifests(tmp_path, other, collections=subset)
+    prepare_manifests(tmp_path, other, collections=clips)
 
 
 def test_rejects_file_from_another_clip(tmp_path: Path) -> None:
