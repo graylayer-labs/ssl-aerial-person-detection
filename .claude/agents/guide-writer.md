@@ -89,3 +89,11 @@ Your report goes to the lead. Keep it under 60 lines. State:
 - Anything you could not source and left out.
 - The commands you ran, with when, and any you could not run.
 - Anything wrong in another file that you noticed and left alone.
+
+## Notes left by handoffs
+
+`docs/guide/notes/<issue>.md` holds a short note per closed issue, written at
+handoff time. Read these first; they say what each issue found and where its
+numbers live. Fold them into the chapters and delete each note once its
+content is in a chapter, so the directory only ever holds what is not yet
+written up.
