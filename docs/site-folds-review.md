@@ -12,7 +12,11 @@ from one site-day share terrain, light, weather, and often the same people.
 
 - **Leave one site-day out.** Each labelled site-day is the test set of one
   fold: MtErie, Carnation, FHL, Baker. Results are reported per fold and as
-  the mean and spread over the four folds.
+  the mean and spread over the four folds. The claim they support is about
+  an unseen site-day, not an unseen site: `data/raw/wisard-full` also holds
+  earlier, unused flights at Carnation and Baker. Widening the unlabelled
+  pool to those flights would need the folds to exclude by site, not
+  site-day.
 - **Hannegan has no labels.** It is never a test set, and it is unlabelled
   data in every fold.
 - **Three label views**, one set of folds each: `paired` (labelled in both
@@ -28,7 +32,8 @@ from one site-day share terrain, light, weather, and often the same people.
   that any view's gap removes. So self-supervised pretraining sees neither
   the test site nor the validation frames. One pool serves all three views.
 - **Label fractions**: 1%, 5%, 10%, 100% of each view's training labels,
-  nested, seeded (seed 7), made of blocks of 10 consecutive frames.
+  nested, seeded (seed 7), made of blocks of 10 consecutive labelled
+  records of one clip.
 
 A site-day is derived from the directory name, never typed by hand:
 `site_day("210924_FHL_Enterprise_VIS_0126")` is `210924_FHL`. A test checks
@@ -96,16 +101,29 @@ fold is held out by site.
 ## Label fractions
 
 An annotator labels a stretch of footage, not every hundredth frame. So each
-training clip is cut into blocks of 10 consecutive labelled frames (2
-seconds). Each site-day's blocks are shuffled with the seed; the site-days
+training clip's labelled records, in frame order, are cut into blocks of 10.
+Where the labels are unbroken a block is 2 seconds of footage, but a block
+can span a hole in the labels or in the frame numbering, so it can cover
+more time. The longest block, as the span from its first to its last frame
+number, per fold:
+
+| Fold (test site-day) | paired | rgb | thermal |
+|---|---|---|---|
+| MtErie | 9 (FHL 0405) | 148 (Carnation 0025) | 11 (FHL 0566) |
+| Carnation | 28 (MtErie 0005) | 28 (MtErie 0005) | 28 (MtErie 0005) |
+| FHL | 28 (MtErie 0005) | 148 (Carnation 0025) | 28 (MtErie 0005) |
+| Baker | 28 (MtErie 0005) | 148 (Carnation 0025) | 28 (MtErie 0005) |
+
+The 148 is the hole of 140 frame numbers in Carnation 0025, about 30
+seconds; the 28 is the hole of 20 in MtErie 0005. Each site-day's blocks are shuffled with the seed; the site-days
 are then interleaved in proportion to their number of blocks, so every
 prefix holds them in proportion to within one block. A subset is the
 shortest prefix holding at least its share of the frames, never less than
 one block. Smaller subsets are prefixes of larger ones, so they are nested
 by construction.
 
-At 1% a fold has 3 to 8 blocks (30 to 80 frames, 6 to 16 seconds of
-footage). There are not always enough blocks to give every training site-day
+At 1% a fold has 3 to 8 blocks (30 to 80 labelled frames, about 6 to 16
+seconds of footage where the blocks have no holes). There are not always enough blocks to give every training site-day
 one: in five of the twelve fold-views the 1% subset holds two of the three
 training site-days. At 5% every subset holds all three.
 
@@ -122,15 +140,16 @@ Unknown, and it cannot be settled from the labels. Crops of labelled people
 from the RGB images show the same kinds of clothing recurring at MtErie,
 Carnation and FHL (a white T-shirt with dark trousers, an orange or red top),
 which suggests some of the same volunteers. Baker is in snow and everyone
-wears winter clothing. So "an unseen site" means unseen terrain, light,
-season and flight, but probably not always unseen people. A model could
+wears winter clothing. So "an unseen site-day" means unseen terrain,
+light, season and flight, but probably not always unseen people. A model could
 gain from recognising a person's clothing from another site-day; nothing in
 these folds prevents that.
 
 ## Leak routes checked
 
-`aerial-search check-folds` reads the fold manifests and verifies, re-reading
-site-days and clip times from the image paths rather than trusting the
+`aerial-search check-folds` reads the fold manifests and verifies the
+following. Site-day, clip, and clip time are read again from each image's
+directory and file name, using only the listed directories, never from the
 fields the builder wrote:
 
 - no image whose directory belongs to the test site-day appears in any
@@ -141,13 +160,20 @@ fields the builder wrote:
 - training, validation, and test share no image within a view;
 - each fraction is contained in the next, and 100% is the training set, so
   no subset is drawn from validation;
+- the two images of a paired record are one moment of one clip;
 - training and unlabelled frames are more than 250 frames from validation
-  in the same clip;
+  in the same clip. The 250 is written into the check, so a builder whose
+  gap shrinks fails it whatever `folds.json` says;
 - the files are rebuilt byte for byte from the seed in `folds.json`.
 
 Every fold writes files with the same names (`train_100pct.jsonl` and so on)
 under its own directory. A cache must be keyed by the file's path or its
 SHA-256, as `run.json` records it, never by its name alone.
+
+A run on a fold records `fold` and `view` at the top level of its
+`run.json`. A normal run refuses a checkpoint from a run on another fold or
+view, or one that recorded none: pretraining in the MtErie fold has seen
+Baker, so a detector scored on Baker must not start from it.
 
 Validation of one view is not checked against training of another. In
 Carnation 0023, the rgb view validates on the whole clip while the paired
@@ -315,7 +341,7 @@ under 16 pixels; MtErie has no small RGB people at all). A size bucket only
 says something on folds whose test set holds people of that size, and the
 table above shows which those are. So a claim takes the form "better at all
 four sites, by these margins", or "better at three of four", never "better
-on average at an unseen site" with an error bar. More site-days, from
+on average at an unseen site-day" with an error bar. More site-days, from
 another dataset, are the only way to a stronger claim.
 
 ## Regenerate and check

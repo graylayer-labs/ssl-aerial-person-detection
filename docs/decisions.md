@@ -2,7 +2,7 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
-- 2026-10-01 · chose leave-one-site-day-out folds over one fixed test split · four labelled site-days cannot spare several for a fixed test set, and the claim is about unseen sites; results are per fold plus mean and spread. See `docs/site-folds-review.md` (#3).
+- 2026-10-01 · chose leave-one-site-day-out folds over one fixed test split · four labelled site-days cannot spare several for a fixed test set, and the claim is about unseen site-days; results are per fold plus mean and spread. See `docs/site-folds-review.md` (#3).
 - 2026-10-01 · chose a 250-frame gap (50 s) between training and validation inside one clip over the 50 frames first proposed · at 50 frames Baker and Carnation frames are still far more alike than random frames of the clip; by 250 they are not (`tools/frame_similarity_lags.py`). Costs 250 frames each of Baker and Carnation 0023.
 - 2026-10-01 · chose to hold out the smallest labelled clip of a site-day as validation over a fixed fraction of frames · validation by whole clip never puts neighbouring frames on both sides; the smallest clip costs training the least.
 - 2026-10-01 · chose label-fraction subsets as nested prefixes of seeded 10-frame blocks, interleaved across site-days, over frames sampled at random · random frames spread over every scene, which is not a label shortage; prefixes make the fractions nested by construction.

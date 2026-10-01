@@ -337,8 +337,9 @@ to its issue or PR. No version numbers.
   non-editable install. Tracked files hidden by skip-worktree or
   assume-unchanged also refuse a normal run. `run.json` records the SHA-256
   of every input (manifests, checkpoint). A normal run given
-  `--ssl-checkpoint` needs a `run.json` beside it with `scratch` false and
-  `status` completed; the parent's name and commit are recorded.
+  `--ssl-checkpoint` needs a `run.json` beside it with `scratch` false,
+  `status` completed, and the same `fold` and `view`; the parent's name and
+  commit are recorded.
 - A normal run is quotable only if its `run.json` has `"status": "completed"`.
   `"started"` means it crashed or is still running; `"failed"` records the
   error. Known limit: files ignored through `.git/info/exclude` are not seen.

@@ -14,7 +14,9 @@ each links to the issue or pull request that holds the detail.
   three label views, and results are reported per fold and as mean and
   spread. The old random clip split, which put nothing in test, is gone. The
   unlabelled pool of a fold excludes the test site-day's images. Label
-  fractions of 1, 5, 10, and 100% are nested runs of 10 consecutive frames.
+  fractions of 1, 5, 10, and 100% are nested blocks of 10 consecutive
+  labelled frames. A checkpoint from one fold cannot start a normal run
+  in another.
   `aerial-search check-folds` verifies that nothing of a test site-day
   reaches training.
   ([#3](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/3),
@@ -26,7 +28,7 @@ each links to the issue or pull request that holds the detail.
   one clip now drops 250 frames between training and validation.
   ([#3](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/3))
 - With four labelled site-days, 1% of a fold's training labels is 30 to 80
-  frames (3 to 8 runs of 2 seconds), sometimes from only two of the three
+  frames (3 to 8 blocks of 10), sometimes from only two of the three
   training sites. A 1% result needs several seeds.
   ([#3](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/3))
 

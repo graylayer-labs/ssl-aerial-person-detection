@@ -50,8 +50,10 @@ GAP_FRAMES = 250
 # The smallest gap check_folds accepts, whatever the builder used. Written out,
 # not derived from GAP_FRAMES, so a builder whose gap shrinks fails its check.
 MIN_GAP_FRAMES = 250
-# Label-fraction subsets are made of runs of this many consecutive labelled
-# frames (2 seconds), as an annotator would label a stretch of footage.
+# Label-fraction subsets are made of blocks of this many consecutive labelled
+# records of one clip, as an annotator would label a stretch of footage. A
+# block is 2 seconds where the labels are unbroken, longer where it spans a
+# hole in them.
 BLOCK_FRAMES = 10
 SEED = 7
 SUMMARY = "folds.json"
