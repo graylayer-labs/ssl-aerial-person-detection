@@ -18,6 +18,13 @@ each links to the issue or pull request that holds the detail.
   `aerial-search check-data` names every changed, missing or added file, and
   a directory fetched from S3 is verified before it is kept.
   ([#38](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/38))
+- A follow-along guide to how the project was built, in `docs/guide/`, with five
+  chapters on the first milestone, and a `guide-writer` agent and `/guide`
+  skill that keep it current from closed issues. Every number in it links to
+  its source. Short result-led blog posts are kept apart in `docs/blog/`, drafted
+  with `/blog` for the owner to edit; none is written yet.
+  ([#50](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/50),
+  [guide](docs/guide/README.md))
 
 **Changed**
 - WiSARD is split by site-day, leaving one out: each of the four labelled
