@@ -10,8 +10,7 @@ detail and does not repeat it.
 ## Rules
 
 - **One post per milestone,** written when the milestone closes, from the
-  milestone note and the guide. There is no post yet; the first is written
-  when milestone #8 closes.
+  milestone note and the guide. The first draft is `2026-10-trusted-ground.md`, for milestone 1.
 - **Shape:** a one-paragraph hook, one figure, the result, what it means for
   search and rescue, and a link to the guide. Use
   [`TEMPLATE.md`](TEMPLATE.md).
