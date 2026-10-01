@@ -165,3 +165,9 @@ figures only with the floor beside them. The 16 unsure frames do not change
 the choice, and the owner can check them first if they want tighter bounds.
 Whichever is chosen is a change to the folds, which #49 lists as out of scope,
 so it needs its own issue.
+
+Decision (lead, 2026-10-01), applied in issue
+[#53](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/53):
+option B. The clip's 1,201 empty-label thermal frames are in no thermal
+manifest and stay in the unlabelled pool; see "Label overrides" in
+`docs/site-folds-review.md`.
