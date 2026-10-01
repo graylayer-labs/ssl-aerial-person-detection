@@ -2,6 +2,8 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
+- 2026-10-01 · chose DINOv3, frozen, as the starting backbone over DINOv2, V-JEPA 2.1, or remote-sensing models · newest strong dense features, many sizes, a satellite variant, and a licence that allows this use. See `docs/model-and-dataset-review.md`.
+- 2026-10-01 · chose to test thermal on the frozen RGB backbone first, with a learned stem as an ablation, over building the stem in from the start · the paper cited for the large thermal gap shows a 2-point gap in its current version.
 - 2026-09-29 · chose one local copy plus S3, fetched when needed, over mounting S3 as a drive · the mount tools for macOS either need system security reduced or are unproven on this version, and raw images are read once per model, which a mount does not help. See #7.
 - 2026-09-29 · chose an AWS role that may write but never delete, with bucket versioning on, over read-only access · agents will need to upload features and manifests; an overwrite can be undone and a delete cannot happen.
 - 2026-09-29 · chose an explicit list of verified VIS/IR directory pairs, matched on equal frame numbers, over grouping directories by site name and pairing by position · position pairing slips where frames are missing and cannot see that the 210327 Airfield VIS and IR run at different rates; the list pairs only what camera motion and contact sheets confirmed. Evidence in `docs/wisard-pairing-review.md` (#2).
