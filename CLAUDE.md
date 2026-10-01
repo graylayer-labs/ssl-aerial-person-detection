@@ -68,11 +68,18 @@ child.
   owner `graylayer-labs`). It is public.
 - Issues: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues
 - Status lives on the board only: Todo, In Progress, Done.
-- **Epics** are parent issues labelled `epic`, one per milestone. Tasks are
-  their sub-issues. The epics in order are the roadmap; there is no separate
-  roadmap document.
+- **Epics** are parent issues labelled `epic`, one per milestone. Work that
+  belongs to one milestone is a sub-issue of its epic. The epics in order are
+  the roadmap; there is no separate roadmap document.
+- **Work that crosses milestones** (docs, process, tooling, audits) is a
+  standalone issue on the board with no parent. It needs no epic and no
+  label beyond `type:`.
+- GitHub's own milestone field is not used. The epic is the milestone.
 - Only the current epic has sub-issues. Later epics hold a short description
   and get their tasks when the one before them closes.
+- The owner watches the board's "Now" view (everything not Done, grouped by
+  status) and the comments on In Progress issues. Keep both current; there
+  is no end-of-milestone reveal.
 - The current epic's body has an "Order of work" section. Follow it. The
   board does not rank tasks.
 - An epic is In Progress for as long as any of its tasks is open. That row is
