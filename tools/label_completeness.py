@@ -12,7 +12,8 @@ Two steps, both deterministic given the seed.
 
 The sample takes the same number of frames from every (camera, clip) stratum,
 chosen at random, empty label files included. Each sheet shows the whole frame
-with its boxes in red, and below it a zoomed crop of each quarter.
+with its boxes in red at half the width of a quarter, and below it a zoomed
+crop of each quarter in a 2x2 grid.
 
 `review.json` is written by the reviewer, not by this script, and is never
 overwritten here. It maps a frame's image path to
@@ -33,7 +34,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 CAMERAS = ("rgb", "thermal")
-PANEL_WIDTH = 1536  # width of the overview and of the 2x2 grid of quarters
+PANEL_WIDTH = 1920  # sheet width; each quarter is shown half of this wide
 HEADER = 36
 
 
@@ -80,43 +81,44 @@ def draw_sample(
     return sample
 
 
+def _boxes_px(boxes: list[dict], w: float, h: float):
+    for b in boxes:
+        yield (
+            (b["x_center"] - b["width"] / 2) * w,
+            (b["y_center"] - b["height"] / 2) * h,
+            (b["x_center"] + b["width"] / 2) * w,
+            (b["y_center"] + b["height"] / 2) * h,
+        )
+
+
 def make_sheet(source: Path, entry: dict, out: Path) -> None:
+    """Overview (half size) on top, then the four quarters at twice its scale."""
     image = Image.open(source / entry["image"]).convert("RGB")
     w, h = image.size
-    scale = PANEL_WIDTH / w
-    # Upscale first for thermal (640 px wide): crops are cut from this canvas.
-    canvas = image.resize((PANEL_WIDTH, round(h * scale)), Image.LANCZOS)
-    cw, ch = canvas.size
-    draw = ImageDraw.Draw(canvas)
-    for b in entry["boxes"]:
-        x0 = (b["x_center"] - b["width"] / 2) * cw
-        y0 = (b["y_center"] - b["height"] / 2) * ch
-        x1 = (b["x_center"] + b["width"] / 2) * cw
-        y1 = (b["y_center"] + b["height"] / 2) * ch
-        draw.rectangle((x0, y0, x1, y1), outline=(255, 0, 0), width=2)
+    qw = PANEL_WIDTH // 2  # displayed width of a quarter
+    qh = round(qw * h / w)
+    sheet = Image.new("RGB", (PANEL_WIDTH, HEADER + qh + 2 * qh), (30, 30, 30))
 
-    # Quarters are cut from the original pixels so that no detail is lost, then
-    # drawn with boxes at the same scale as the overview.
-    qw, qh = cw // 2, ch // 2
-    sheet = Image.new("RGB", (cw, HEADER + ch + ch), (30, 30, 30))
-    sheet.paste(canvas, (0, HEADER))
-    for i, (qx, qy) in enumerate([(0, 0), (1, 0), (0, 1), (1, 1)]):
+    overview = image.resize((qw, qh), Image.LANCZOS)
+    od = ImageDraw.Draw(overview)
+    for box in _boxes_px(entry["boxes"], qw, qh):
+        od.rectangle(box, outline=(255, 0, 0), width=2)
+    sheet.paste(overview, (0, HEADER))
+
+    # Quarters are cut from the original pixels, so no detail is lost.
+    k = qw / (w / 2)
+    for qx, qy in [(0, 0), (1, 0), (0, 1), (1, 1)]:
         sx0, sy0 = round(qx * w / 2), round(qy * h / 2)
         crop = image.crop((sx0, sy0, round((qx + 1) * w / 2), round((qy + 1) * h / 2)))
         crop = crop.resize((qw, qh), Image.LANCZOS)
         cd = ImageDraw.Draw(crop)
-        for b in entry["boxes"]:
-            x0 = (b["x_center"] - b["width"] / 2) * w
-            y0 = (b["y_center"] - b["height"] / 2) * h
-            x1 = (b["x_center"] + b["width"] / 2) * w
-            y1 = (b["y_center"] + b["height"] / 2) * h
-            k = qw / (w / 2)
+        for x0, y0, x1, y1 in _boxes_px(entry["boxes"], w, h):
             cd.rectangle(
                 ((x0 - sx0) * k, (y0 - sy0) * k, (x1 - sx0) * k, (y1 - sy0) * k),
                 outline=(255, 0, 0),
                 width=2,
             )
-        sheet.paste(crop, (qx * qw, HEADER + ch + qy * qh))
+        sheet.paste(crop, (qx * qw, HEADER + qh + qy * qh))
     ImageDraw.Draw(sheet).text(
         (8, 10),
         f"{entry['id']}  {entry['clip']}  {entry['n_boxes']} boxes (red)  "
