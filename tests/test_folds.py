@@ -14,6 +14,7 @@ from aerial_search.data.folds import (
     SUMMARY,
     UNLABELLED,
     VIEWS,
+    LabelOverride,
     check_folds,
     site_day,
     train_file,
@@ -466,3 +467,128 @@ def test_refuses_to_overwrite_a_directory_it_did_not_write(tmp_path: Path) -> No
     with pytest.raises(FileExistsError):
         write_folds(manifests, destination, _size, collections=collections)
     assert (destination / "keep.txt").exists()
+
+
+CLIP = "240101_Alpha_Enterprise_0003"
+OVERRIDE = LabelOverride(CLIP, "thermal", "empty_label", "labelling stops early")
+
+
+def _override_dataset(root: Path) -> tuple[Path, dict[str, Collection], set[str]]:
+    """The dataset with the first 120 thermal frames of CLIP made empty-label."""
+    manifests, collections = _dataset(root)
+    path = manifests / "thermal_labelled.jsonl"
+    rows = _records(path)
+    emptied = set()
+    for row in rows:
+        if row["collection_id"] == CLIP and int(row["image"][-10:-5]) < 120:
+            row["boxes"] = []
+            emptied.add(row["image"])
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    return manifests, collections, emptied
+
+
+def _build_with_override(
+    tmp_path: Path,
+) -> tuple[Path, Path, dict[str, Collection], set[str]]:
+    manifests, collections, emptied = _override_dataset(tmp_path)
+    destination = manifests / "folds"
+    write_folds(
+        manifests, destination, _size, collections=collections, overrides=[OVERRIDE]
+    )
+    return manifests, destination, collections, emptied
+
+
+def test_override_frames_land_only_in_the_pool(tmp_path: Path) -> None:
+    _, destination, _, emptied = _build_with_override(tmp_path)
+    assert emptied
+    for fold in ("240202_Bravo", "240303_Charlie"):
+        pool = {r["thermal_image"] for r in _records(destination / fold / UNLABELLED)}
+        assert emptied <= pool
+        thermal = destination / fold / "thermal"
+        for path in thermal.glob("*.jsonl"):
+            assert not {r["image"] for r in _records(path)} & emptied, path
+    test_fold = destination / "240101_Alpha"
+    for path in (test_fold / "thermal").glob("*.jsonl"):
+        assert not {r["image"] for r in _records(path)} & emptied, path
+    assert emptied.isdisjoint(
+        {r["thermal_image"] for r in _records(test_fold / UNLABELLED)}
+    )
+
+
+def test_override_leaves_other_frames_and_the_rgb_view_alone(tmp_path: Path) -> None:
+    manifests, destination, _, emptied = _build_with_override(tmp_path)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    base, collections = _dataset(plain)
+    write_folds(base, base / "folds", _size, collections=collections)
+    for view in ("rgb", "paired"):
+        for name in (train_file(100), "validation.jsonl"):
+            a = (destination / "240202_Bravo" / view / name).read_text()
+            b = (base / "folds" / "240202_Bravo" / view / name).read_text()
+            assert a == b
+    test = _records(destination / "240101_Alpha" / "thermal" / "test.jsonl")
+    all_test = _records(base / "folds" / "240101_Alpha" / "thermal" / "test.jsonl")
+    assert len(test) == len(all_test) - len(emptied)
+
+
+def test_override_is_recorded_in_the_summary(tmp_path: Path) -> None:
+    _, destination, _, emptied = _build_with_override(tmp_path)
+    summary = json.loads((destination / SUMMARY).read_text())
+    assert summary["label_overrides"] == [
+        {
+            "collection_id": CLIP,
+            "camera": "thermal",
+            "rule": "empty_label",
+            "reason": "labelling stops early",
+            "frames": len(emptied),
+        }
+    ]
+
+
+def test_check_passes_with_an_override_applied(tmp_path: Path) -> None:
+    manifests, destination, collections, _ = _build_with_override(tmp_path)
+    report = check_folds(
+        manifests, destination, _size, collections=collections, overrides=[OVERRIDE]
+    )
+    assert report.problems == []
+    assert any("override" in line for line in report.lines)
+
+
+def test_check_finds_an_overridden_frame_in_a_thermal_manifest(
+    tmp_path: Path,
+) -> None:
+    manifests, destination, collections, emptied = _build_with_override(tmp_path)
+    fold = destination / "240202_Bravo"
+    leaked = _records(fold / "thermal" / train_file(100))[0] | {
+        "image": sorted(emptied)[0],
+        "collection_id": CLIP,
+        "boxes": [],
+    }
+    _corrupt(fold / "thermal" / train_file(100), leaked)
+    report = check_folds(
+        manifests, destination, _size, collections=collections, overrides=[OVERRIDE]
+    )
+    assert any("overridden" in p and "thermal" in p for p in report.problems)
+
+
+def test_check_finds_an_overridden_frame_missing_from_the_pool(
+    tmp_path: Path,
+) -> None:
+    manifests, destination, collections, emptied = _build_with_override(tmp_path)
+    pool_file = destination / "240202_Bravo" / UNLABELLED
+    kept = [r for r in _records(pool_file) if r["thermal_image"] != sorted(emptied)[0]]
+    pool_file.write_text("".join(json.dumps(r) + "\n" for r in kept))
+    report = check_folds(
+        manifests, destination, _size, collections=collections, overrides=[OVERRIDE]
+    )
+    assert any("pool" in p and "overridden" in p for p in report.problems)
+
+
+def test_check_finds_an_override_that_was_not_applied(tmp_path: Path) -> None:
+    manifests, collections, _ = _override_dataset(tmp_path)
+    destination = manifests / "folds"
+    write_folds(manifests, destination, _size, collections=collections, overrides=[])
+    report = check_folds(
+        manifests, destination, _size, collections=collections, overrides=[OVERRIDE]
+    )
+    assert any("overridden" in p for p in report.problems)
