@@ -44,7 +44,9 @@ Agent sessions end and context is lost. The project board is the memory.
 4. **End** with `/handoff`, even if the task is unfinished. The next agent
    should be able to continue from the issue alone.
 
-If there is no issue for the work, create one from the task template.
+If there is no issue for the work, create one from the task template. Every
+PR closes an issue; a PR that would only reference one gets its own issue
+first, however small.
 
 ## Leave a trail
 
@@ -360,6 +362,11 @@ Keep it short, and keep one home for each fact.
 
 Write a decision down when a future agent would otherwise have to guess or
 re-derive it. Format: `YYYY-MM-DD · chose X over Y · reason`.
+When a decision is reversed, leave the old line and prefix it `Superseded by
+the <date> line:`; do not delete it.
+
+A rule change in this file is carried into the skill or agent file that
+implements it, in the same PR.
 
 ### Changelog
 
