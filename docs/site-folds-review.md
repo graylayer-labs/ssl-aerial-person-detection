@@ -89,6 +89,15 @@ removed frames hold none):
 
 Validation frames are unchanged in all four folds.
 
+**The thermal label-fraction subsets are redrawn.** Subsets are drawn after
+the override, and the draw shuffles blocks per site-day, so removing this
+clip's blocks reorders the FHL blocks. The 1%, 5%, and 10% thermal subsets of
+the MtErie, Carnation, and Baker folds therefore hold different frames and
+different box counts from a build without the override, not merely fewer.
+The 100% training sets and the test sets lose exactly the 1,201 frames and no
+boxes. No thermal result was produced before the override, so nothing is made
+incomparable by it.
+
 ## Where validation comes from
 
 Not every clip is labelled in every camera, so the number of usable clips
