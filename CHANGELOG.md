@@ -30,6 +30,13 @@ each links to the issue or pull request that holds the detail.
   training sites. A 1% result needs several seeds.
   ([#3](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/3))
 
+**Decided**
+- The starting backbone is DINOv3, kept frozen, with thermal fed to it unchanged
+  as the first thermal experiment. Licences for it and for candidate extra
+  datasets were checked at their sources.
+  ([#5](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/5),
+  [review](docs/model-and-dataset-review.md))
+
 ### 2026-09-29
 
 **Found**
