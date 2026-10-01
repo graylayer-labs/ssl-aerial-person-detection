@@ -251,6 +251,30 @@ tools/install_archify.sh       # one-time: install the Archify diagram skill
 - The dataset exists once on the laptop and once in S3. If a directory is ever
   missing locally, fetch it from S3; do not look for another copy.
 
+### Pinning the data
+
+The dataset is pinned by `src/aerial_search/data/checksums/wisard-full.tsv.gz`:
+one line per file (path, size, SHA-256), 100,794 files, 3.9 MB. Its root hash
+(SHA-256 of the list's text) is recorded in every `run.json` and in
+`data_quality.json`, so a result names the data it used. Hashing 43 GB takes
+about 30 seconds.
+
+```bash
+uv run aerial-search check-data data/raw/wisard-full              # exit 1 and list every changed/missing/added file
+uv run aerial-search check-data data/raw/wisard-full --directory 220109_Baker_Enterprise_IR_2
+uv run aerial-search fetch-directory <name> --data-root data/raw/wisard-full   # from S3 if absent, then verified
+uv run aerial-search checksum data/raw/wisard-full                # rewrite the list; only if the dataset deliberately changes
+```
+
+- `check-data` does not run automatically before a run; run it after copying
+  or fetching data.
+- `fetch-directory` copies into `.fetch-<name>` and moves it into place only
+  if it matches the list; a mismatch deletes the copy. A directory already
+  present that differs is refused and kept. The function is
+  `aerial_search.data.checksums.ensure_directory`.
+- `prepare` records the commit and refuses a dirty tree or a commit off
+  `origin/main`; pass `--scratch` for a debugging run (recorded as scratch).
+
 ### AWS
 
 - Agents use the AWS profile `ssl-aerial`, set as `AWS_PROFILE` in

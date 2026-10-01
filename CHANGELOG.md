@@ -8,6 +8,16 @@ each links to the issue or pull request that holds the detail.
 
 ### 2026-10-01
 
+**Added**
+- The WiSARD dataset is pinned by a committed list of 100,794 files with
+  size and SHA-256 (3.9 MB gzipped, root hash `6e5e5d55...75ed`). A run's
+  `run.json` and `prepare`'s `data_quality.json` record the root hash;
+  `aerial-search check-data` names every changed, missing or added file, and
+  a directory fetched from S3 is verified against the list before it is kept.
+  `prepare` also records its commit and refuses a dirty tree without
+  `--scratch`.
+  ([#38](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/38))
+
 **Changed**
 - WiSARD is split by site-day, leaving one out: each of the four labelled
   site-days (MtErie, Carnation, FHL, Baker) is the test set of one fold, in
