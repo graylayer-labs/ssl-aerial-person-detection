@@ -298,7 +298,7 @@ def test_detector_refuses_a_checkpoint_pretrained_in_another_fold(
     assert not (repo / "outputs").exists()
 
 
-def _check_folds_output(monkeypatch, capsys, report) -> tuple[str, int]:
+def _check_folds_output(monkeypatch, capsys, report) -> tuple[str, int | str | None]:
     from aerial_search import cli
 
     monkeypatch.setattr(cli, "check_folds", lambda *a, **k: report)
