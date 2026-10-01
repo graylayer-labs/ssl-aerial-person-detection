@@ -65,6 +65,8 @@ def _start_run(args: argparse.Namespace, default_name: str) -> Path:
             checkpoint=getattr(args, "ssl_checkpoint", None),
             fold=args.fold,
             view=VIEW,
+            manifests=args.manifests,
+            data_root=args.data_root,
         )
     except ProvenanceError as error:
         raise SystemExit(f"refusing to start: {error}") from error
@@ -121,6 +123,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=checksums.committed_path(),
         help="default: the committed list, under src/aerial_search/data/checksums/",
     )
+    checksum.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing list; this re-pins the dataset",
+    )
     check_data = subcommands.add_parser(
         "check-data", help="check a dataset directory against the committed list"
     )
@@ -156,7 +163,13 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument(
         "--scratch",
         action="store_true",
-        help="debugging: allowed from a dirty tree or off main; never quotable",
+        help="debugging: allowed from a dirty tree or off main, skips the data "
+        "check; never quotable",
+    )
+    prepare.add_argument(
+        "--force",
+        action="store_true",
+        help="let a scratch prepare overwrite manifests that are not scratch",
     )
 
     folds = subcommands.add_parser(
@@ -211,6 +224,11 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "checksum":
+        if args.output.exists() and not args.force:
+            raise SystemExit(
+                f"refusing to overwrite {args.output}: writing it re-pins the "
+                "dataset. Pass --force if that is intended."
+            )
         entries = checksums.hash_tree(args.source, progress=checksums.print_progress)
         checksums.write_list(entries, args.output)
         print(f"{len(entries):,} files, root hash {checksums.root_hash(entries)}")
@@ -234,7 +252,11 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "fetch-directory":
         try:
             print(checksums.ensure_directory(args.name, args.data_root))
-        except (checksums.DataMismatchError, ValueError) as error:
+        except (
+            checksums.DataMismatchError,
+            checksums.FetchError,
+            ValueError,
+        ) as error:
             raise SystemExit(f"FAIL {error}") from error
         return
 
@@ -256,9 +278,17 @@ def main(argv: list[str] | None = None) -> None:
         }
         if args.scratch:
             provenance["dirty"] = state.get("dirty")
-        counts = prepare_manifests(
-            args.source, args.output, collections=collections, provenance=provenance
-        )
+        try:
+            counts = prepare_manifests(
+                args.source,
+                args.output,
+                collections=collections,
+                provenance=provenance,
+                verify=not args.scratch,
+                force=args.force,
+            )
+        except (checksums.DataMismatchError, ValueError) as error:
+            raise SystemExit(f"refusing to prepare: {error}") from error
         print(", ".join(f"{name}: {count}" for name, count in counts.items()))
         return
 

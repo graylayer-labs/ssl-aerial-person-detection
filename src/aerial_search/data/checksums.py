@@ -19,10 +19,12 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 DATASET = "wisard-full"
 BUCKET_URIS = {
@@ -33,10 +35,15 @@ SETTINGS = Path(__file__).resolve().parents[3] / ".claude" / "settings.json"
 WORKERS = 8
 
 Progress = Callable[[str], None]
+_UNSET: Any = object()
 
 
 class DataMismatchError(RuntimeError):
     """A directory differs from the pinned list."""
+
+
+class FetchError(RuntimeError):
+    """The aws command failed; the message carries its error text."""
 
 
 @dataclass(frozen=True, order=True)
@@ -193,15 +200,35 @@ def check_tree(
     return compare(hash_tree(root, present, progress), subset)
 
 
-def aws_profile(settings: Path = SETTINGS) -> str:
-    """The AWS profile named in the project's `.claude/settings.json`."""
+def aws_profile(settings: Path = SETTINGS) -> tuple[str | None, str]:
+    """The AWS profile to use and where it came from.
+
+    The environment wins, then `.claude/settings.json`, then none: with no
+    profile the command uses the default credential chain (for example an
+    instance role).
+    """
+    if os.environ.get("AWS_PROFILE"):
+        return os.environ["AWS_PROFILE"], "environment"
     try:
         profile = json.loads(settings.read_text()).get("env", {}).get("AWS_PROFILE")
     except (OSError, ValueError):
         profile = None
-    if not profile:
-        raise RuntimeError(f"no AWS_PROFILE in {settings}; cannot name the profile")
-    return profile
+    if profile:
+        return profile, "settings file"
+    return None, "default credentials"
+
+
+def verify_directories(
+    root: Path,
+    names: Sequence[str],
+    expected: Sequence[Entry],
+    progress: Progress | None = None,
+) -> Differences:
+    """Hash only the named directories of `root` and compare with the list.
+
+    Raises ValueError for a name the list does not hold.
+    """
+    return check_tree(root, expected, list(names), progress)
 
 
 def ensure_directory(
@@ -211,8 +238,10 @@ def ensure_directory(
     expected: Sequence[Entry] | None = None,
     dataset: str = DATASET,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
-    profile: str | None = None,
+    profile: str | None = _UNSET,
+    profile_source: str | None = None,
     bucket_uri: str | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> Path:
     """Make `data_root/<name>` available, fetching it from S3 if absent.
 
@@ -242,24 +271,40 @@ def ensure_directory(
         return final
 
     uri = (bucket_uri or BUCKET_URIS[dataset]).rstrip("/")
-    temporary = data_root / f".fetch-{name}"
-    shutil.rmtree(temporary, ignore_errors=True)
+    if profile == _UNSET:
+        profile, profile_source = aws_profile()
+    (log or print_progress)(
+        f"fetching {name} from {uri}/{name} with "
+        + (
+            f"AWS profile {profile} ({profile_source})"
+            if profile
+            else f"{profile_source}"
+        )
+    )
+    data_root.mkdir(parents=True, exist_ok=True)
+    temporary = Path(tempfile.mkdtemp(prefix=f".fetch-{name}-", dir=data_root))
     command = [
         *("aws", "s3", "cp", "--recursive", f"{uri}/{name}", str(temporary)),
-        *("--profile", profile or aws_profile()),
+        *(("--profile", profile) if profile else ()),
     ]
     try:
-        runner(command, check=True, capture_output=True, text=True)
+        try:
+            runner(command, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as error:
+            detail = (error.stderr or "").strip() or "no error text"
+            raise FetchError(
+                f"aws failed (exit {error.returncode}): {detail}"
+            ) from error
         if not any(temporary.rglob("*")):
             # `aws s3 cp --recursive` exits 0 on a prefix that holds nothing.
             raise DataMismatchError(
                 f"nothing was fetched from {uri}/{name}; check the bucket prefix"
             )
         verify(temporary)
+        os.replace(temporary, final)
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
         raise
-    os.replace(temporary, final)
     return final
 
 

@@ -1,4 +1,5 @@
 import hashlib
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -207,19 +208,134 @@ def test_unknown_directory_name_is_refused(tmp_path: Path, pinned_tree) -> None:
             )
 
 
-def test_profile_comes_from_project_settings(tmp_path: Path) -> None:
+def test_profile_precedence_is_environment_then_settings_then_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     settings = tmp_path / "settings.json"
-    settings.write_text('{"env": {"AWS_PROFILE": "ssl-aerial"}}')
-    assert checksums.aws_profile(settings) == "ssl-aerial"
+    settings.write_text('{"env": {"AWS_PROFILE": "from-settings"}}')
+    monkeypatch.setenv("AWS_PROFILE", "from-env")
+    assert checksums.aws_profile(settings) == ("from-env", "environment")
+    monkeypatch.delenv("AWS_PROFILE")
+    assert checksums.aws_profile(settings) == ("from-settings", "settings file")
     settings.write_text("{}")
-    with pytest.raises(RuntimeError, match="AWS_PROFILE"):
-        checksums.aws_profile(settings)
+    assert checksums.aws_profile(settings) == (None, "default credentials")
+
+
+def test_no_profile_means_no_profile_flag_and_the_log_says_which(
+    tmp_path: Path, pinned_tree
+) -> None:
+    source, entries = pinned_tree
+    aws = FakeAws(source)
+    data = tmp_path / "raw"
+    data.mkdir()
+    log: list[str] = []
+    ensure_directory(
+        "a_0001",
+        data,
+        expected=entries,
+        runner=aws,
+        profile=None,
+        profile_source="default credentials",
+        bucket_uri="s3://b/k",
+        log=log.append,
+    )
+    assert "--profile" not in aws.calls[0]
+    assert "default credentials" in " ".join(log)
+
+
+def test_failed_fetch_carries_the_aws_error_text(tmp_path: Path, pinned_tree) -> None:
+    _source, entries = pinned_tree
+    data = tmp_path / "raw"
+    data.mkdir()
+
+    def failing(command, **kwargs):
+        raise subprocess.CalledProcessError(
+            255, command, "", "The security token included in the request is expired"
+        )
+
+    with pytest.raises(checksums.FetchError, match="token .* expired"):
+        ensure_directory(
+            "a_0001",
+            data,
+            expected=entries,
+            runner=failing,
+            profile="p",
+            bucket_uri="s3://b/k",
+        )
+    assert list(data.iterdir()) == []
+
+
+def test_failed_move_into_place_cleans_up(
+    tmp_path: Path, pinned_tree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, entries = pinned_tree
+    data = tmp_path / "raw"
+    data.mkdir()
+
+    def broken(*args: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(checksums.os, "replace", broken)
+    with pytest.raises(OSError, match="disk full"):
+        ensure_directory(
+            "a_0001",
+            data,
+            expected=entries,
+            runner=FakeAws(source),
+            profile="p",
+            bucket_uri="s3://b/k",
+        )
+    assert list(data.iterdir()) == []
+
+
+def test_two_fetches_use_different_temporary_directories(
+    tmp_path: Path, pinned_tree
+) -> None:
+    source, entries = pinned_tree
+    data = tmp_path / "raw"
+    data.mkdir()
+    seen: list[str] = []
+
+    class Recording(FakeAws):
+        def __call__(self, command, **kwargs):
+            seen.append(command[command.index("--recursive") + 2])
+            return super().__call__(command, **kwargs)
+
+    for _ in range(2):
+        ensure_directory(
+            "a_0001",
+            data,
+            expected=entries,
+            runner=Recording(source),
+            profile="p",
+            bucket_uri="s3://b/k",
+        )
+        shutil.rmtree(data / "a_0001")
+    assert seen[0] != seen[1]
 
 
 def test_committed_list_is_readable_and_has_a_root_hash() -> None:
     entries = checksums.committed_list("wisard-full")
-    assert len(entries) > 100_000
-    assert len(checksums.committed_root_hash("wisard-full")) == 64
+    assert len(entries) == 100_794
+    # Literal, so a change in how the root hash is defined fails here.
+    assert checksums.root_hash(entries) == (
+        "6e5e5d554c4be119f15bb636049800788904f3a2e2759cabce402c676d1575ed"
+    )
+
+
+def test_verify_directories_names_files_in_a_named_subset(tmp_path: Path) -> None:
+    make_tree(tmp_path)
+    pinned = hash_tree(tmp_path)
+    (tmp_path / "b_0002" / "sub" / "y.jpg").write_bytes(b"YYY")
+    assert not checksums.verify_directories(tmp_path, ["a_0001"], pinned)
+    diff = checksums.verify_directories(tmp_path, ["a_0001", "b_0002"], pinned)
+    assert diff.changed == ["b_0002/sub/y.jpg"]
+    with pytest.raises(ValueError, match="x_9"):
+        checksums.verify_directories(tmp_path, ["a_0001", "x_9"], pinned)
+    (tmp_path / "b_0002").rename(tmp_path / "moved")
+    assert checksums.verify_directories(tmp_path, ["b_0002"], pinned).missing == [
+        "b_0002/sub/y.jpg"
+    ]
 
 
 def test_default_bucket_prefix_names_the_dataset_directory() -> None:

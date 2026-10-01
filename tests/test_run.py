@@ -1,6 +1,7 @@
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -38,6 +39,41 @@ def repo(tmp_path: Path) -> Path:
     return path
 
 
+DATA: dict[str, Any] = {}
+
+
+@pytest.fixture(autouse=True)
+def pinned_data(tmp_path: Path):
+    """A data root, its pinned list, and verified manifests from a normal prepare."""
+    from aerial_search.data.checksums import hash_tree, root_hash
+
+    root = tmp_path / "raw"
+    (root / "d1").mkdir(parents=True)
+    (root / "d1" / "f.jpg").write_bytes(b"frame")
+    pinned = hash_tree(root)
+    manifests = tmp_path / "manifests"
+    manifests.mkdir()
+    write_quality(
+        manifests,
+        {"commit": "abc", "scratch": False},
+        {
+            "dataset": "wisard-full",
+            "root_hash": root_hash(pinned),
+            "verified": True,
+            "directories": ["d1"],
+        },
+    )
+    DATA.clear()
+    DATA.update(manifests=manifests, data_root=root, pinned=pinned)
+    yield DATA
+
+
+def write_quality(manifests: Path, provenance: dict | None, data: dict | None) -> None:
+    (manifests / "data_quality.json").write_text(
+        json.dumps({"provenance": provenance, "data": data})
+    )
+
+
 def run(
     repo: Path | None,
     name: str = "exp",
@@ -46,6 +82,7 @@ def run(
     checkpoint: Path | None = None,
     fold: str | None = None,
     view: str | None = None,
+    **data: Any,
 ) -> Path:
     return start_run(
         name,
@@ -59,6 +96,7 @@ def run(
         checkpoint=checkpoint,
         fold=fold,
         view=view,
+        **{**DATA, **data},
     )
 
 
@@ -385,14 +423,68 @@ def test_code_in_an_ignored_directory_refused(
         run(None)
 
 
-def test_run_records_the_root_hash_of_the_pinned_dataset(repo: Path) -> None:
-    from aerial_search.data.checksums import committed_root_hash
+def test_normal_run_records_the_verified_data_and_manifest_provenance(
+    repo: Path,
+) -> None:
+    from aerial_search.data.checksums import root_hash
 
     data = json.loads((run(repo) / "run.json").read_text())
-    assert data["data_checksums"] == {
-        "dataset": "wisard-full",
-        "root_hash": committed_root_hash(),
-    }
+    assert data["data"]["verified"] is True
+    assert data["data"]["root_hash"] == root_hash(DATA["pinned"])
+    assert data["provenance"] == {"commit": "abc", "scratch": False}
+    assert data["data_verified_at"]
+
+
+def test_normal_run_refuses_a_changed_file_in_a_directory_it_reads(
+    repo: Path,
+) -> None:
+    (DATA["data_root"] / "d1" / "f.jpg").write_bytes(b"edited")
+    with pytest.raises(ProvenanceError, match=r"changed d1/f\.jpg"):
+        run(repo)
+    assert not (repo / "outputs").exists()
+
+
+def test_normal_run_refuses_missing_scratch_or_unverified_manifests(
+    repo: Path,
+) -> None:
+    manifests = DATA["manifests"]
+    good = json.loads((manifests / "data_quality.json").read_text())
+    with pytest.raises(ProvenanceError, match="manifests"):
+        run(repo, manifests=None)
+    (manifests / "data_quality.json").unlink()
+    with pytest.raises(ProvenanceError, match="data_quality.json"):
+        run(repo)
+    write_quality(manifests, {"commit": "abc", "scratch": True}, good["data"])
+    with pytest.raises(ProvenanceError, match="scratch"):
+        run(repo)
+    write_quality(manifests, None, good["data"])
+    with pytest.raises(ProvenanceError, match="provenance"):
+        run(repo)
+    write_quality(
+        manifests,
+        good["provenance"],
+        {"dataset": None, "root_hash": None, "verified": False},
+    )
+    with pytest.raises(ProvenanceError, match="verified"):
+        run(repo)
+    assert not (repo / "outputs").exists()
+
+
+def test_scratch_run_skips_verification_and_says_so(repo: Path) -> None:
+    (DATA["data_root"] / "d1" / "f.jpg").write_bytes(b"edited")
+    data = json.loads((run(repo, scratch=True) / "run.json").read_text())
+    assert data["data_verified_at"] is None
+    assert data["data_verification_skipped"] is True
+    assert data["data"]["verified"] is True  # what prepare recorded, copied as is
+
+
+def test_scratch_run_needs_no_manifests_record(repo: Path) -> None:
+    data = json.loads(
+        (
+            run(repo, scratch=True, manifests=None, data_root=None) / "run.json"
+        ).read_text()
+    )
+    assert data["data"] is None and data["provenance"] is None
 
 
 def test_code_state_gives_commit_for_a_clean_tree_on_main(repo: Path) -> None:
