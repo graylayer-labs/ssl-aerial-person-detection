@@ -93,7 +93,11 @@ duplicate detections. A person of 10 x 10 and a detection shifted 2 pixels
 shows the table's second row:
 
 ```python
-from aerial_search.evaluation.detection import GroundTruth, Prediction, evaluate_detections
+from aerial_search.evaluation.detection import (
+    GroundTruth,
+    Prediction,
+    evaluate_detections,
+)
 
 person = (0.0, 0.0, 10.0, 10.0)
 shifted = (2.0, 2.0, 12.0, 12.0)
