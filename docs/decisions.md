@@ -2,6 +2,8 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
+- 2026-10-01 · chose SigLIP 2 (Google) as the starting backbone over the DINO family (Meta) · the owner prefers a non-Meta model for a public project; SigLIP 2 is Apache-2.0 and ungated. EVA-02 second, DINOv2 as the comparison. See #5.
+- 2026-10-01 · chose to delete the August exploration notebook over re-running it · it quoted figures from a wrong pairing, and the guide and review notes now cover what it showed.
 - 2026-10-01 · chose a follow-along guide kept apart from the blog, with an agent that refuses to write a number it cannot link to its source, over one document for both readers · the blog is short and led by a result for a skimmer; the guide holds the process and the mistakes, which a post cannot. See #50.
 - 2026-10-01 · chose leave-one-site-day-out folds over one fixed test split · four labelled site-days cannot spare several for a fixed test set, and the claim is about unseen site-days; results are per fold plus mean and spread. See `docs/site-folds-review.md` (#3).
 - 2026-10-01 · chose a 250-frame gap (50 s) between training and validation inside one clip over the 50 frames first proposed · at 50 frames Baker and Carnation frames are still far more alike than random frames of the clip; by 250 they are not (`tools/frame_similarity_lags.py`). Costs 250 frames each of Baker and Carnation 0023.

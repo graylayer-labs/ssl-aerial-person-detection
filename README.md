@@ -34,15 +34,18 @@ to.
 
 ## Status
 
-**Current milestone: Trusted ground.** Nothing is trained until the data can be
-trusted.
+**Milestone 1, Trusted ground, is closing.** Nothing was trained; everything
+a result will rest on was checked first. The
+[write-up](docs/milestones/trusted-ground.md) has the detail.
 
 - The project uses the public
-  [WiSARD dataset](https://sites.google.com/uw.edu/wisard/).
-- The code that pairs RGB frames with thermal frames has a known bug, so no
-  dataset figures are quoted here yet. See
-  [issue #2](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/2).
-- No model results exist yet.
+  [WiSARD dataset](https://sites.google.com/uw.edu/wisard/): 14,834 paired
+  RGB and thermal frames from 17 verified clips, 5,739 labelled in both
+  cameras, split into four folds that each leave one site out.
+- Starting model: SigLIP 2, kept frozen, with EVA-02 and DINOv2 as
+  comparisons.
+- No model results exist yet. The next milestone measures the off-the-shelf
+  baseline.
 
 Progress is tracked as
 [epics and issues](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues?q=is%3Aissue+label%3Aepic).
