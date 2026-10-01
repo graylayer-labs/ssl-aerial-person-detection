@@ -383,3 +383,30 @@ def test_code_in_an_ignored_directory_refused(
     monkeypatch.setattr(run_module, "_code_location", lambda: ignored)
     with pytest.raises(ProvenanceError, match="ignored"):
         run(None)
+
+
+def test_run_records_the_root_hash_of_the_pinned_dataset(repo: Path) -> None:
+    from aerial_search.data.checksums import committed_root_hash
+
+    data = json.loads((run(repo) / "run.json").read_text())
+    assert data["data_checksums"] == {
+        "dataset": "wisard-full",
+        "root_hash": committed_root_hash(),
+    }
+
+
+def test_code_state_gives_commit_for_a_clean_tree_on_main(repo: Path) -> None:
+    from aerial_search.run import code_state
+
+    state = code_state(scratch=False, repo=repo)
+    assert state["commit"] == git(repo, "rev-parse", "HEAD")
+
+
+def test_code_state_refuses_a_dirty_tree_unless_scratch(repo: Path) -> None:
+    from aerial_search.run import code_state
+
+    (repo / "new.py").write_text("x")
+    with pytest.raises(ProvenanceError, match="uncommitted"):
+        code_state(scratch=False, repo=repo)
+    state = code_state(scratch=True, repo=repo)
+    assert state["dirty"] and state["commit"]

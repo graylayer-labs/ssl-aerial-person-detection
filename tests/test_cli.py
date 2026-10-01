@@ -1,3 +1,7 @@
+from pathlib import Path
+
+import pytest
+
 from aerial_search.cli import build_parser
 
 
@@ -333,3 +337,69 @@ def test_check_folds_prints_only_the_failures_of_a_failing_check(
 
     assert code == 1
     assert out.splitlines() == ["FAIL train holds test"]
+
+
+def test_checksum_then_check_data_reports_every_difference(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from aerial_search.cli import main
+
+    source = tmp_path / "raw"
+    (source / "a_0001").mkdir(parents=True)
+    (source / "a_0001" / "x.jpg").write_bytes(b"xx")
+    (source / "a_0001" / "y.jpg").write_bytes(b"yy")
+    pinned = tmp_path / "pin.tsv.gz"
+
+    main(["checksum", str(source), "--output", str(pinned)])
+    main(["check-data", str(source), "--list", str(pinned)])
+    assert "OK" in capsys.readouterr().out
+
+    (source / "a_0001" / "x.jpg").write_bytes(b"XX")
+    (source / "a_0001" / "y.jpg").unlink()
+    (source / "a_0001" / "z.jpg").write_bytes(b"z")
+    with pytest.raises(SystemExit) as raised:
+        main(["check-data", str(source), "--list", str(pinned)])
+    assert raised.value.code == 1
+    out = capsys.readouterr().out
+    assert "changed a_0001/x.jpg" in out
+    assert "missing a_0001/y.jpg" in out
+    assert "added   a_0001/z.jpg" in out
+
+
+def test_prepare_refuses_a_dirty_tree_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import aerial_search.cli as cli
+    from aerial_search import run
+
+    def refuse(*, scratch: bool, repo: Path | None = None) -> dict:
+        raise run.ProvenanceError("the working tree has uncommitted changes")
+
+    monkeypatch.setattr(run, "code_state", refuse)
+    monkeypatch.setattr(
+        cli, "prepare_manifests", lambda *a, **k: pytest.fail("must not prepare")
+    )
+    with pytest.raises(SystemExit, match="uncommitted"):
+        cli.main(["prepare", str(tmp_path), "--output", str(tmp_path / "out")])
+
+
+def test_prepare_scratch_records_that_it_is_scratch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import aerial_search.cli as cli
+    from aerial_search import run
+
+    monkeypatch.setattr(
+        run,
+        "code_state",
+        lambda *, scratch, repo=None: {"commit": "abc", "dirty": " M x", "x": 1},
+    )
+    seen: dict = {}
+
+    def fake_prepare(*args: object, **kwargs: object) -> dict[str, int]:
+        seen.update(kwargs)
+        return {"all_pairs": 0}
+
+    monkeypatch.setattr(cli, "prepare_manifests", fake_prepare)
+    cli.main(["prepare", str(tmp_path), "--scratch"])
+    assert seen["provenance"] == {"commit": "abc", "scratch": True, "dirty": " M x"}

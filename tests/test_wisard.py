@@ -554,3 +554,19 @@ def _frame(path: Path) -> int:
 
 def _records(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_prepare_records_the_commit_and_the_pinned_data(tmp_path: Path) -> None:
+    from aerial_search.data.checksums import committed_root_hash
+
+    clips = _two_clip_root(tmp_path)
+    provenance = {"commit": "abc123", "scratch": False}
+    out = tmp_path / "out"
+    prepare_manifests(tmp_path, out, collections=clips, provenance=provenance)
+
+    quality = json.loads((out / "data_quality.json").read_text())
+    assert quality["provenance"] == provenance
+    assert quality["data_checksums"] == {
+        "dataset": "wisard-full",
+        "root_hash": committed_root_hash(),
+    }

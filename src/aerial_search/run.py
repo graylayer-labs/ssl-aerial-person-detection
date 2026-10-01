@@ -42,6 +42,8 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
+from aerial_search.data import checksums
+
 MAIN_REF = "refs/remotes/origin/main"
 SCRATCH_PREFIX = "scratch-"
 PACKAGES = ("torch", "torchvision")
@@ -212,30 +214,8 @@ def _parent(
     return parent
 
 
-def start_run(
-    name: str,
-    config: dict[str, Any],
-    seed: int,
-    *,
-    device: str,
-    scratch: bool = False,
-    argv: list[str] | None = None,
-    repo: Path | None = None,
-    inputs: Sequence[Path] = (),
-    checkpoint: Path | None = None,
-    fold: str | None = None,
-    view: str | None = None,
-) -> Path:
-    """Check provenance, create `outputs/[scratch-]<name>/`, write `run.json`.
-
-    `repo` is for tests; by default the repository holding this module is
-    used. `fold` and `view` name the fold's test site-day and label view, and
-    must match those of the checkpoint's run. Returns the run directory, the
-    only place the experiment may write.
-    Raises `ProvenanceError` if a normal run is not from a clean tree on main,
-    if git cannot tell, if a checkpoint has no normal parent run, or if the
-    directory exists.
-    """
+def _check_code(scratch: bool, repo: Path | None) -> tuple[Path, dict[str, Any]]:
+    """The repository root and its state; a normal run must be clean, on main."""
     start = (repo or _code_location()).resolve()
     state: dict[str, Any]
     try:
@@ -274,6 +254,45 @@ def start_run(
                 "or pass --scratch. If it was merged recently, a `git fetch` "
                 "may be needed."
             )
+    return root, state
+
+
+def code_state(*, scratch: bool, repo: Path | None = None) -> dict[str, Any]:
+    """Commit and cleanliness of the running code, refusing like `start_run`.
+
+    For other commands that write results meant for quoting, such as
+    `aerial-search prepare`. Raises `ProvenanceError` unless `scratch` or the
+    tree is clean with HEAD on `origin/main`. Returns `commit`, `dirty`,
+    `hidden_changes`, `commit_on_main`, and `main_error` (or `git_error`).
+    """
+    return _check_code(scratch, repo)[1]
+
+
+def start_run(
+    name: str,
+    config: dict[str, Any],
+    seed: int,
+    *,
+    device: str,
+    scratch: bool = False,
+    argv: list[str] | None = None,
+    repo: Path | None = None,
+    inputs: Sequence[Path] = (),
+    checkpoint: Path | None = None,
+    fold: str | None = None,
+    view: str | None = None,
+) -> Path:
+    """Check provenance, create `outputs/[scratch-]<name>/`, write `run.json`.
+
+    `repo` is for tests; by default the repository holding this module is
+    used. `fold` and `view` name the fold's test site-day and label view, and
+    must match those of the checkpoint's run. Returns the run directory, the
+    only place the experiment may write.
+    Raises `ProvenanceError` if a normal run is not from a clean tree on main,
+    if git cannot tell, if a checkpoint has no normal parent run, or if the
+    directory exists.
+    """
+    root, state = _check_code(scratch, repo)
 
     input_paths = [*inputs, *([checkpoint] if checkpoint else [])]
     recorded_inputs = [
@@ -310,6 +329,10 @@ def start_run(
             "device": device,
         },
         "packages": _package_versions(),
+        "data_checksums": {
+            "dataset": checksums.DATASET,
+            "root_hash": checksums.committed_root_hash(),
+        },
     }
     _write(directory, record)
     return directory

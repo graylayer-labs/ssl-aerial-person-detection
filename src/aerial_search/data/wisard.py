@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypedDict
 
+from aerial_search.data import checksums
+
 
 @dataclass(frozen=True)
 class ImagePair:
@@ -425,6 +427,7 @@ def prepare_manifests(
     destination: Path,
     *,
     collections: Collections = WISARD_COLLECTIONS,
+    provenance: Mapping[str, object] | None = None,
 ) -> dict[str, int]:
     """Write the all-pairs manifest and the labelled manifests.
 
@@ -437,7 +440,9 @@ def prepare_manifests(
       boxes_dropped, the boxes of its label file that were dropped
     - data_quality.json: whether this is a subset and which collections it
       holds, counts per collection, clipped boxes per collection, and the
-      directories that were left out or not paired
+      directories that were left out or not paired, the root hash of the
+      pinned checksum list (`data_checksums`), and `provenance`, the commit
+      and scratch flag the caller passes (see `aerial-search prepare`)
 
     Splits are not made here: they are by site-day, in folds/ (see
     aerial_search.data.folds). Split files left by an older version are
@@ -506,6 +511,11 @@ def prepare_manifests(
                     s["rgb_dropped"] + s["thermal_dropped"] for s in box_stats.values()
                 ),
                 "boxes": box_stats,
+                "provenance": dict(provenance) if provenance else None,
+                "data_checksums": {
+                    "dataset": checksums.DATASET,
+                    "root_hash": checksums.committed_root_hash(),
+                },
                 **report,
             },
             f,
