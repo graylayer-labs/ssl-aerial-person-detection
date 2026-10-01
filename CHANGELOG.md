@@ -10,12 +10,13 @@ each links to the issue or pull request that holds the detail.
 
 **Added**
 - The WiSARD dataset is pinned by a committed list of 100,794 files with
-  size and SHA-256 (3.9 MB gzipped, root hash `6e5e5d55...75ed`). A run's
-  `run.json` and `prepare`'s `data_quality.json` record the root hash;
+  size and SHA-256 (3.9 MB gzipped, root hash `6e5e5d55...75ed`). A normal
+  `prepare` verifies the directories it reads against the list before
+  writing, and a normal run re-verifies the directories its manifests
+  reference before starting; `run.json` records what was verified. Manifests
+  from `prepare --scratch` or from unpinned data cannot start a normal run.
   `aerial-search check-data` names every changed, missing or added file, and
-  a directory fetched from S3 is verified against the list before it is kept.
-  `prepare` also records its commit and refuses a dirty tree without
-  `--scratch`.
+  a directory fetched from S3 is verified before it is kept.
   ([#38](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/38))
 
 **Changed**

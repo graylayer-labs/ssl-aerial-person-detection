@@ -255,25 +255,41 @@ tools/install_archify.sh       # one-time: install the Archify diagram skill
 
 The dataset is pinned by `src/aerial_search/data/checksums/wisard-full.tsv.gz`:
 one line per file (path, size, SHA-256), 100,794 files, 3.9 MB. Its root hash
-(SHA-256 of the list's text) is recorded in every `run.json` and in
-`data_quality.json`, so a result names the data it used. Hashing 43 GB takes
-about 30 seconds.
+(SHA-256 of the list's text) is
+`6e5e5d554c4be119f15bb636049800788904f3a2e2759cabce402c676d1575ed`.
+Hashing all 43 GB takes about 25 seconds.
+
+- A normal `prepare` hashes the directories of its selected collections and
+  checks them against the list before writing anything; on a difference it
+  refuses and names the files. `data_quality.json` records
+  `data: {dataset, root_hash, verified, directories, seconds}` and
+  `provenance: {commit, scratch}`. A source that is not the pinned dataset
+  records `verified: false` and no root hash. `prepare --scratch` skips the
+  check and records `verified: false`; it will not overwrite manifests that
+  are not scratch unless `--force`.
+- A normal run (`train-ssl`, `train-detector`) refuses manifests whose
+  `data_quality.json` is missing, scratch, or unverified, re-verifies the
+  directories those manifests reference against the list before starting,
+  and copies `data` and `provenance` into `run.json` with `data_verified_at`.
+  A scratch run skips the check and records `data_verification_skipped`.
+  So a quotable result's `run.json` names the data it was verified against.
 
 ```bash
-uv run aerial-search check-data data/raw/wisard-full              # exit 1 and list every changed/missing/added file
+uv run aerial-search check-data data/raw/wisard-full   # exit 1 and list every changed/missing/added file
 uv run aerial-search check-data data/raw/wisard-full --directory 220109_Baker_Enterprise_IR_2
 uv run aerial-search fetch-directory <name> --data-root data/raw/wisard-full   # from S3 if absent, then verified
-uv run aerial-search checksum data/raw/wisard-full                # rewrite the list; only if the dataset deliberately changes
+uv run aerial-search checksum data/raw/wisard-full --force   # re-pin; only if the dataset deliberately changes
 ```
 
-- `check-data` does not run automatically before a run; run it after copying
-  or fetching data.
-- `fetch-directory` copies into `.fetch-<name>` and moves it into place only
-  if it matches the list; a mismatch deletes the copy. A directory already
-  present that differs is refused and kept. The function is
+- `fetch-directory` copies into a temporary `.fetch-<name>-*` directory and
+  moves it into place only if it matches the list; a mismatch deletes the
+  copy. A directory already present that differs is refused and kept. The
+  AWS profile is `AWS_PROFILE` from the environment, else from
+  `.claude/settings.json`, else none (default credentials); the log line
+  says which. A failed `aws` call prints its error text. The function is
   `aerial_search.data.checksums.ensure_directory`.
 - `prepare` records the commit and refuses a dirty tree or a commit off
-  `origin/main`; pass `--scratch` for a debugging run (recorded as scratch).
+  `origin/main`; pass `--scratch` for a debugging run.
 
 ### AWS
 
