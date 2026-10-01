@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from aerial_search.data import wisard
 from aerial_search.data.wisard import (
     WISARD_COLLECTIONS,
     Collection,
@@ -159,6 +160,78 @@ def test_select_collections_names_a_subset_explicitly() -> None:
         select_collections(["no_such_clip"])
 
 
+def test_an_empty_selection_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="No collections"):
+        select_collections([])
+    with pytest.raises(ValueError, match="No collections"):
+        prepare_manifests(tmp_path, tmp_path / "out", collections={})
+    assert not (tmp_path / "out").exists()
+
+
+def _two_clip_root(root: Path) -> dict[str, Collection]:
+    """Two listed clips and one unlisted directory, one frame each."""
+    clips = {
+        "a_0001": Collection("a_VIS_0001", "a_IR_0002", "0001", "0002"),
+        "b_0003": Collection("b_VIS_0003", "b_IR_0004", "0003", "0004"),
+    }
+    for c in clips.values():
+        for directory, clip in [
+            (c.rgb_dir, c.rgb_clip),
+            (c.thermal_dir, c.thermal_clip),
+        ]:
+            (root / directory).mkdir()
+            _touch(root / directory / f"{directory}_{clip}_00000.jpg")
+    (root / "stray_VIS_9").mkdir()
+    _touch(root / "stray_VIS_9" / "stray_9_00000.jpg")
+    return clips
+
+
+def test_a_subset_says_so_and_names_what_it_left_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clips = _two_clip_root(tmp_path)
+    monkeypatch.setattr(wisard, "WISARD_COLLECTIONS", clips)
+    full, subset = tmp_path / "full", tmp_path / "subset"
+
+    prepare_manifests(tmp_path, full, collections=clips)
+    prepare_manifests(tmp_path, subset, collections={"a_0001": clips["a_0001"]})
+
+    whole = json.loads((full / "data_quality.json").read_text())
+    part = json.loads((subset / "data_quality.json").read_text())
+    assert whole["subset"] is False
+    assert whole["selected_collections"] == ["a_0001", "b_0003"]
+    assert whole["unselected_directories"] == []
+    assert part["subset"] is True
+    assert part["selected_collections"] == ["a_0001"]
+    assert part["unselected_directories"] == ["b_IR_0004", "b_VIS_0003"]
+    assert part["unpaired_directories"] == ["stray_VIS_9"]
+
+
+def test_a_subset_is_not_written_over_full_manifests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clips = _two_clip_root(tmp_path)
+    monkeypatch.setattr(wisard, "WISARD_COLLECTIONS", clips)
+    out = tmp_path / "out"
+    prepare_manifests(tmp_path, out, collections=clips)
+    before = (out / "full.jsonl").read_text()
+
+    with pytest.raises(ValueError, match="full manifests"):
+        prepare_manifests(tmp_path, out, collections={"a_0001": clips["a_0001"]})
+
+    assert (out / "full.jsonl").read_text() == before
+    # Manifests with no record of what they are count as full.
+    (out / "data_quality.json").unlink()
+    with pytest.raises(ValueError, match="full manifests"):
+        prepare_manifests(tmp_path, out, collections={"a_0001": clips["a_0001"]})
+    # A subset may be rewritten, and a full set may replace it.
+    other = tmp_path / "other"
+    subset = {"a_0001": clips["a_0001"]}
+    prepare_manifests(tmp_path, other, collections=subset)
+    prepare_manifests(tmp_path, other, collections=subset)
+    prepare_manifests(tmp_path, other, collections=clips)
+
+
 def test_rejects_file_from_another_clip(tmp_path: Path) -> None:
     rgb, thermal = _flight_dirs(tmp_path)
     for number in range(40):
@@ -276,6 +349,26 @@ def test_does_not_count_label_rounding_as_clipping(tmp_path: Path) -> None:
     assert stats == {"boxes_clipped": 0, "boxes_dropped": 0}
 
 
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+def test_rejects_a_label_value_that_is_not_finite(tmp_path: Path, value: str) -> None:
+    labels = tmp_path / "labels.txt"
+    labels.write_text(f"0 0.5 0.5 {value} 0.2\n")
+
+    with pytest.raises(ValueError, match="labels.txt:1"):
+        load_boxes(labels)
+
+
+def test_counts_an_overshoot_just_above_the_rounding_tolerance(tmp_path: Path) -> None:
+    # 1e-4 past the edge is a drawn box, not six-decimal rounding (at most 1e-6).
+    labels = tmp_path / "labels.txt"
+    labels.write_text("0 0.99995 0.5 0.0002 0.2\n")
+    stats: dict[str, int] = {}
+
+    load_boxes(labels, stats=stats)
+
+    assert stats == {"boxes_clipped": 1, "boxes_dropped": 0}
+
+
 def test_prepare_writes_no_split_and_removes_an_old_one(tmp_path: Path) -> None:
     # Splits are by site-day and live in folds/ (aerial_search.data.folds).
     # An old random split left beside the manifests could be used by mistake.
@@ -340,6 +433,49 @@ def test_writes_one_manifest_per_camera_and_counts_boxes_once(tmp_path: Path) ->
     }
 
 
+def test_clips_without_labels_have_zero_box_counts(tmp_path: Path) -> None:
+    rgb, thermal = _flight_dirs(tmp_path)
+    for number in range(40):
+        (rgb / f"flight_VIS_0001_{number:05d}.jpg").touch()
+        (thermal / f"flight_IR_0002_{number:05d}.jpg").touch()
+    out = tmp_path / "out"
+
+    prepare_manifests(tmp_path, out, collections=FLIGHT)
+
+    quality = json.loads((out / "data_quality.json").read_text())
+    assert quality["boxes"] == {
+        "flight_0001": {
+            "rgb_clipped": 0,
+            "rgb_dropped": 0,
+            "thermal_clipped": 0,
+            "thermal_dropped": 0,
+        }
+    }
+
+
+def test_a_label_file_that_lost_all_its_boxes_differs_from_an_empty_one(
+    tmp_path: Path,
+) -> None:
+    rgb, thermal = _flight_dirs(tmp_path)
+    for number in range(40):
+        (rgb / f"flight_VIS_0001_{number:05d}.jpg").touch()
+        (thermal / f"flight_IR_0002_{number:05d}.jpg").touch()
+    (rgb / "flight_VIS_0001_00000.txt").write_text("")  # no people in frame
+    (rgb / "flight_VIS_0001_00001.txt").write_text("0 1.2 0.5 0.1 0.2\n")  # outside
+    (rgb / "flight_VIS_0001_00002.txt").write_text("0 0.5 0.5 0.1 0.2\n")
+    out = tmp_path / "out"
+
+    prepare_manifests(tmp_path, out, collections=FLIGHT)
+
+    by_name = {Path(r["image"]).name: r for r in _records(out / "rgb_labelled.jsonl")}
+    empty = by_name["flight_VIS_0001_00000.jpg"]
+    dropped = by_name["flight_VIS_0001_00001.jpg"]
+    kept = by_name["flight_VIS_0001_00002.jpg"]
+    assert (empty["boxes"], empty["boxes_dropped"]) == ([], 0)
+    assert (dropped["boxes"], dropped["boxes_dropped"]) == ([], 1)
+    assert (len(kept["boxes"]), kept["boxes_dropped"]) == (1, 0)
+
+
 @pytest.mark.parametrize(
     ("name", "frame"),
     [
@@ -370,6 +506,27 @@ def test_frames_by_index_checks_clip_number(tmp_path: Path) -> None:
     assert list(_frames_by_index(tmp_path, clip="0583")) == [0]
     with pytest.raises(ValueError, match="0582"):
         _frames_by_index(tmp_path, clip="0582")
+
+
+def test_a_clip_number_must_stand_alone_in_a_file_name(tmp_path: Path) -> None:
+    # 0583 sits inside the longer numbers 10583 and 05831.
+    _touch(tmp_path / "DJI_10583_00000.jpg")
+    with pytest.raises(ValueError, match="DJI_10583_00000.jpg"):
+        _frames_by_index(tmp_path, clip="0583")
+    (tmp_path / "DJI_10583_00000.jpg").unlink()
+    _touch(tmp_path / "DJI_05831_00000.jpg")
+    with pytest.raises(ValueError, match="DJI_05831_00000.jpg"):
+        _frames_by_index(tmp_path, clip="0583")
+
+
+@pytest.mark.skipif(not WISARD_ROOT.is_dir(), reason="WiSARD data not present")
+def test_each_listed_pair_starts_at_the_same_moment_on_disk() -> None:
+    # Both recordings start together, so once the offset is applied the first
+    # frame of the VIS clip and of the IR clip must have the same number.
+    for cid, c in WISARD_COLLECTIONS.items():
+        rgb = _frames_by_index(WISARD_ROOT / c.rgb_dir, c.rgb_clip)
+        thermal = _frames_by_index(WISARD_ROOT / c.thermal_dir, c.thermal_clip)
+        assert min(rgb) + c.thermal_offset == min(thermal), cid
 
 
 def _flight_dirs(root: Path) -> tuple[Path, Path]:

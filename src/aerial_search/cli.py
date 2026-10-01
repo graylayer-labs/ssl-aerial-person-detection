@@ -197,12 +197,14 @@ def main(argv: list[str] | None = None) -> None:
         report = check_folds(
             args.manifests, args.manifests / "folds", _image_size(args.source)
         )
-        for line in report.lines:
-            print(f"OK   {line}" if not report.problems else f"     {line}")
-        for problem in report.problems:
-            print(f"FAIL {problem}")
         if report.problems:
+            # The summary lines describe a check that did not pass; printing
+            # them beside the failures would read as passes.
+            for problem in report.problems:
+                print(f"FAIL {problem}")
             raise SystemExit(1)
+        for line in report.lines:
+            print(f"OK   {line}")
         return
 
     if args.command == "train-detector":

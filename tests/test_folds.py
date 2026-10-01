@@ -102,6 +102,7 @@ def _dataset(root: Path) -> tuple[Path, dict[str, Collection]]:
         (manifests / f"{name}.jsonl").write_text(
             "".join(json.dumps(r) + "\n" for r in records)
         )
+    (manifests / "data_quality.json").write_text(json.dumps({"subset": False}))
     return manifests, collections
 
 
@@ -317,6 +318,40 @@ def test_check_passes_on_built_folds(folds: tuple[Path, Path, dict]) -> None:
     report = check_folds(manifests, destination, _size, collections=collections)
     assert report.problems == []
     assert report.lines
+
+
+def test_check_says_in_its_first_line_that_the_sources_were_full(
+    folds: tuple[Path, Path, dict],
+) -> None:
+    manifests, destination, collections = folds
+    report = check_folds(manifests, destination, _size, collections=collections)
+    assert report.lines[0] == "source manifests: full"
+
+
+@pytest.mark.parametrize("quality", [{"subset": True}, {}, None])
+def test_folds_refuse_manifests_that_are_not_marked_full(
+    tmp_path: Path, quality: dict | None
+) -> None:
+    manifests, collections = _dataset(tmp_path)
+    marker = manifests / "data_quality.json"
+    if quality is None:
+        marker.unlink()
+    else:
+        marker.write_text(json.dumps(quality))
+    destination = manifests / "folds"
+    with pytest.raises(ValueError, match="subset"):
+        write_folds(manifests, destination, _size, collections=collections)
+    assert not destination.exists()
+
+
+def test_check_fails_on_manifests_that_are_not_full(
+    folds: tuple[Path, Path, dict],
+) -> None:
+    manifests, destination, collections = folds
+    (manifests / "data_quality.json").write_text(json.dumps({"subset": True}))
+    report = check_folds(manifests, destination, _size, collections=collections)
+    assert report.lines[0] == "source manifests: subset"
+    assert any("subset" in p for p in report.problems)
 
 
 def _corrupt(path: Path, record: dict) -> None:
