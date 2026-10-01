@@ -30,8 +30,8 @@ One fixed test set of several flights cannot be cut from four site-days. Baker
 alone holds 38% of the pairs labelled in both cameras ([#3]).
 
 **The unit that must not cross a split is the site-day.** Neighbouring frames
-are near-duplicates, and clips from one site-day share terrain, light, weather
-and often the same people ([folds review][folds-review]).
+are near-duplicates, and clips from one site-day share terrain, light and
+often the same people ([folds review][folds-review]).
 
 **The gap inside a clip had to be 250 frames, not 50.** Where a site-day has
 one clip, validation is a block at the end of it. The issue proposed dropping
@@ -71,25 +71,6 @@ fold-views, the 1% subset holds only two of the three training site-days. At
 A size bucket says something only on folds whose test set holds people of that
 size. MtErie has no small RGB people at all.
 
-## The design
-
-([folds review][folds-review], [decisions](../decisions.md))
-
-- **Leave one site-day out.** Each labelled site-day is the test set of one
-  fold. Report every result per fold, and as mean and spread.
-- **Hannegan is never a test set.** It has no labels. It is unlabelled data in
-  every fold.
-- **Three label views:** both cameras, RGB only, thermal only. The test
-  site-day is the same in all three.
-- **Validation** is the smallest labelled clip of a training site-day, whole,
-  or the last 15% of a single clip after the 250-frame gap.
-- **The unlabelled pool leaves out the test site-day** and every validation
-  frame, so self-supervised pretraining never sees the test site.
-- **Label fractions of 1, 5, 10 and 100%** are nested prefixes of seeded
-  blocks of 10 consecutive labelled frames (seed 7), not random frames.
-  Random frames spread over every scene, which is not what a label shortage
-  looks like.
-
 ## How we checked it
 
 `aerial-search check-folds` reads the manifests back and verifies every rule,
@@ -117,17 +98,27 @@ lines unmarked, so one could read as a pass. [#39] fixed that
 
 ## Decisions and why
 
-- **Site-day folds, not one fixed test split.** Four site-days cannot spare
-  several for a fixed test, and the claim is about an unseen site-day.
-- **A 250-frame gap, not 50.** Measured above.
-- **Hold out a whole clip as validation where one exists.** Neighbouring
-  frames never sit on both sides, and the smallest clip costs training least.
-- **Nested block prefixes for label fractions.**
-- **One unlabelled pool per fold,** which serves all three views.
+([folds review][folds-review], [decisions](../decisions.md))
+
+- **Leave one site-day out, not one fixed test split.** Four site-days cannot
+  spare several for a fixed test, and the claim is about an unseen site-day.
+  Each labelled site-day is the test set of one fold. Report per fold, and as
+  mean and spread.
+- **Hannegan has no labels,** so it is never a test set and is unlabelled data
+  in every fold.
+- **Three label views** (both cameras, RGB only, thermal only), with the same
+  test site-day in all three.
+- **Validation is a whole clip where one exists,** the smallest of a training
+  site-day, so neighbouring frames never sit on both sides. A single clip
+  gives its last 15%, after the 250-frame gap.
+- **One unlabelled pool per fold,** leaving out the test site-day and every
+  validation frame, so pretraining never sees the test site.
+- **Label fractions of 1, 5, 10 and 100%** are nested prefixes of seeded
+  blocks of 10 consecutive labelled frames (seed 7). Random frames spread over
+  every scene, which is not what a label shortage looks like.
 - **Wording:** claims say "unseen site-day". The dataset holds earlier flights
   at two of the sites, and some of the same people may appear at more than one
-  site. It means unseen terrain, light and season, not always unseen people
-  ([#3 handoff][i3-handoff]).
+  site ([#3 handoff][i3-handoff]).
 
 ## How to reproduce
 
@@ -138,8 +129,8 @@ uv run aerial-search folds data/raw/wisard-full data/manifests/wisard-full
 uv run aerial-search check-folds data/raw/wisard-full data/manifests/wisard-full
 ```
 
-On 2026-10-01 from a branch, `check-folds` printed the seven lines above, led
-by one more: `OK   source manifests: full`. A run that starts on a fold takes
+On 2026-10-01, from a branch, `check-folds` printed the seven lines above
+after one more, `OK   source manifests: full`. A run takes a fold as
 `--fold 220109_Baker`, for example. See chapter 5.
 
 ## What four site-days can and cannot support
@@ -155,15 +146,13 @@ it is for choosing settings and never for quoting.
 
 - **Test the check, not just the builder.** The reviewer's corruptions caught
   what a green check did not ([#3 handoff][i3-handoff]).
-- **Measure before fixing a number.** The first gap, 50 frames, came from a
-  guess. [`tools/frame_similarity_lags.py`](../../tools/frame_similarity_lags.py)
+- **Measure before fixing a number.** The 50-frame gap was a guess.
+  [`tools/frame_similarity_lags.py`](../../tools/frame_similarity_lags.py)
   gave 250.
 - **Known and left alone:** a block of 10 labelled records can span a hole in
   the labels of up to 148 frame numbers ([#3 handoff][i3-handoff]).
 
-## Next
-
-[Chapter 5](05-making-runs-traceable.md): making a run name its own code and data.
+Next: [chapter 5](05-making-runs-traceable.md).
 
 [#3]: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/3
 [#39]: https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/39
