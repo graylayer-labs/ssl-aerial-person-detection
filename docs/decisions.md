@@ -2,6 +2,7 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
+- 2026-10-01 · chose to sign every commit with a passphrase-less project key over signing only on `main` · the owner asked for branch commits signed too, and agents cannot type a passphrase. See #27.
 - 2026-10-01 · chose SigLIP 2 (Google) as the starting backbone over the DINO family (Meta) · the owner prefers a non-Meta model for a public project; SigLIP 2 is Apache-2.0 and ungated. EVA-02 second, DINOv2 as the comparison. See #5.
 - 2026-10-01 · chose to delete the August exploration notebook over re-running it · it quoted figures from a wrong pairing, and the guide and review notes now cover what it showed.
 - 2026-10-01 · chose a follow-along guide kept apart from the blog, with an agent that refuses to write a number it cannot link to its source, over one document for both readers · the blog is short and led by a result for a skimmer; the guide holds the process and the mistakes, which a post cannot. See #50.
@@ -10,7 +11,7 @@ One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 - 2026-10-01 · chose to hold out the smallest labelled clip of a site-day as validation over a fixed fraction of frames · validation by whole clip never puts neighbouring frames on both sides; the smallest clip costs training the least.
 - 2026-10-01 · chose label-fraction subsets as nested prefixes of seeded 10-frame blocks, interleaved across site-days, over frames sampled at random · random frames spread over every scene, which is not a label shortage; prefixes make the fractions nested by construction.
 - 2026-10-01 · chose one unlabelled pool per fold that leaves out the test site-day and every view's validation frames over a pool per view · one self-supervised model then serves all three views, and validation stays unseen by pretraining.
-- 2026-10-01 · chose DINOv3, frozen, as the starting backbone over DINOv2, V-JEPA 2.1, or remote-sensing models · newest strong dense features, many sizes, a satellite variant, and a licence that allows this use. See `docs/model-and-dataset-review.md`.
+- Superseded by the SigLIP 2 line above: 2026-10-01 · chose DINOv3, frozen, as the starting backbone over DINOv2, V-JEPA 2.1, or remote-sensing models · newest strong dense features, many sizes, a satellite variant, and a licence that allows this use. See `docs/model-and-dataset-review.md`.
 - 2026-10-01 · chose to test thermal on the frozen RGB backbone first, with a learned stem as an ablation, over building the stem in from the start · the paper cited for the large thermal gap shows a 2-point gap in its current version.
 - 2026-09-29 · chose one local copy plus S3, fetched when needed, over mounting S3 as a drive · the mount tools for macOS either need system security reduced or are unproven on this version, and raw images are read once per model, which a mount does not help. See #7.
 - 2026-09-29 · chose an AWS role that may write but never delete, with bucket versioning on, over read-only access · agents will need to upload features and manifests; an overwrite can be undone and a delete cannot happen.
@@ -19,7 +20,7 @@ One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 - 2026-09-29 · chose Archify for finished figures, installed by a pinned-commit script and git-ignored, over committing its 7.3 MB of code or using Mermaid alone · Mermaid stays for drafts; the script checks the commit, so a moved tag cannot change what runs, and settings block its network and preview features. Approved by the owner; see #30.
 - 2026-09-29 · chose a public project board over a private one · the repo and its issues are already public, so the board exposes nothing new, and it shows visitors how the project is run. Approved by the owner; see #22.
 - 2026-09-29 · chose to fold `docs/PROBLEM.md` into the README over keeping it · the problem statement then has one home. See #6.
-- 2026-09-29 · chose to rely on GitHub signing each squash merge over the "require signed commits" rule · the rule was tried and blocked every PR, because it also demands signatures on the branch commits, which needs a local signing key that agents would hold. Commits on `main` are verified either way.
+- Superseded by the 2026-10-01 signing line: 2026-09-29 · chose to rely on GitHub signing each squash merge over the "require signed commits" rule · the rule was tried and blocked every PR, because it also demands signatures on the branch commits, which needs a local signing key that agents would hold. Commits on `main` are verified either way.
 - 2026-09-29 · chose a separate `process-auditor` over widening `repo-janitor` · one checks how work was done and may fix records; the other checks the repo's contents and changes nothing.
 - 2026-09-29 · chose to quote results only from runs on a clean commit on `main` over allowing branch runs · the owner's rule against "works on my machine"; enforced by the module in #23.
 - 2026-09-29 · chose the main session as a lead that delegates in the background over doing the work itself · keeps its context for judgement; agents return short reports and the detail goes on the issue.
