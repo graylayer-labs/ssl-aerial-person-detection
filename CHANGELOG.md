@@ -8,6 +8,15 @@ each links to the issue or pull request that holds the detail.
 
 ### 2026-10-01
 
+**Found**
+- First-pass estimate of unlabelled visible people (agent review, 99 frames
+  per camera, 21 frames still unsure and awaiting the owner): about 1% of
+  RGB frames (95% interval 0.2 to 6.1%) and 2% of thermal frames (0.6 to 7.9%)
+  have an unboxed person, but the thermal misses sit in one clip,
+  `210924_FHL_Enterprise_0403`, whose frames are mostly empty-labelled.
+  ([#37](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/37),
+  [review](docs/label-completeness-review.md))
+
 **Changed**
 - WiSARD is split by site-day, leaving one out: each of the four labelled
   site-days (MtErie, Carnation, FHL, Baker) is the test set of one fold, in
