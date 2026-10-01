@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import random
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
@@ -398,32 +397,30 @@ def prepare_manifests(
     source: Path,
     destination: Path,
     *,
-    train_fraction: float = 0.7,
-    validation_fraction: float = 0.15,
-    seed: int = 7,
     collections: Collections = WISARD_COLLECTIONS,
 ) -> dict[str, int]:
-    """Write all-pairs manifest, per-camera manifests, and labelled splits.
+    """Write the all-pairs manifest and the labelled manifests.
 
     Writes:
     - all_pairs.jsonl: every pair, labelled or not (for SSL)
-    - full.jsonl: pairs labelled in both cameras, and train/validation/test
-      splits of them by collection, via seeded greedy bin-filling
+    - full.jsonl: pairs labelled in both cameras
     - rgb_labelled.jsonl, thermal_labelled.jsonl: every frame of a listed
       directory that has a label file for that camera, whether or not its
       partner has one (for detection on one camera)
     - data_quality.json: counts per collection, clipped boxes per collection,
       and the directories that were not paired
 
+    Splits are not made here: they are by site-day, in folds/ (see
+    aerial_search.data.folds). Split files left by an older version are
+    removed, so nothing reads them by mistake. Returns the number of records
+    in each manifest.
+
     Raises FileNotFoundError if a listed directory is missing.
     """
-    if not 0 < train_fraction < 1 or not 0 < validation_fraction < 1:
-        raise ValueError("Split fractions must be between zero and one")
-    if train_fraction + validation_fraction >= 1:
-        raise ValueError("Train and validation fractions must leave a test split")
-
     report = pairing_report(source, collections)
     destination.mkdir(parents=True, exist_ok=True)
+    for old_split in ("train.jsonl", "validation.jsonl", "test.jsonl"):
+        (destination / old_split).unlink(missing_ok=True)
     labels = _Labels()
 
     all_pairs_unlabeled = load_pairs(
@@ -442,49 +439,21 @@ def prepare_manifests(
     )
     print(f"Wrote {len(all_pairs_unlabeled):,} pairs to all_pairs.jsonl")
 
-    # Pairs labelled in both cameras, recorded once and reused for the splits.
+    # Pairs labelled in both cameras.
     records = {
         pair: _pair_record(pair, source, labels)
         for pair in all_pairs_unlabeled
         if _is_labelled(pair)
     }
-    by_collection: dict[str, list[ImagePair]] = {}
-    for pair in records:
-        by_collection.setdefault(pair.collection_id, []).append(pair)
     _write_jsonl(destination / "full.jsonl", records.values())
     print(f"Wrote {len(records):,} labelled pairs to full.jsonl")
+    counts = {"all_pairs": len(all_pairs_unlabeled), "full": len(records)}
 
     for camera in ("rgb", "thermal"):
         frames = _camera_records(source, collections, camera, labels)
         _write_jsonl(destination / f"{camera}_labelled.jsonl", frames)
         print(f"Wrote {len(frames):,} labelled frames to {camera}_labelled.jsonl")
-
-    # Split labelled pairs for train/validation/test
-    collection_ids = list(by_collection)
-    random.Random(seed).shuffle(collection_ids)
-
-    total = sum(len(p) for p in by_collection.values())
-    target_train = total * train_fraction
-    target_validation = total * validation_fraction
-
-    splits: dict[str, list[ImagePair]] = {"train": [], "validation": [], "test": []}
-    counts = {"train": 0, "validation": 0, "test": 0}
-
-    for cid in collection_ids:
-        name = (
-            "train"
-            if counts["train"] < target_train
-            else "validation"
-            if counts["validation"] < target_validation
-            else "test"
-        )
-        splits[name].extend(by_collection[cid])
-        counts[name] += len(by_collection[cid])
-
-    for name, split_pairs in splits.items():
-        _write_jsonl(
-            destination / f"{name}.jsonl", (records[pair] for pair in split_pairs)
-        )
+        counts[f"{camera}_labelled"] = len(frames)
 
     box_stats = labels.stats
     with (destination / "data_quality.json").open("w") as f:
@@ -506,7 +475,7 @@ def prepare_manifests(
             indent=2,
         )
 
-    return {name: len(split_pairs) for name, split_pairs in splits.items()}
+    return counts
 
 
 def _camera_records(

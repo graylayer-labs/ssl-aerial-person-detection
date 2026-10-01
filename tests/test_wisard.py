@@ -276,43 +276,33 @@ def test_does_not_count_label_rounding_as_clipping(tmp_path: Path) -> None:
     assert stats == {"boxes_clipped": 0, "boxes_dropped": 0}
 
 
-def test_prepares_collection_level_manifests(tmp_path: Path) -> None:
-    source = tmp_path / "raw"
-    collections = {}
+def test_prepare_writes_no_split_and_removes_an_old_one(tmp_path: Path) -> None:
+    # Splits are by site-day and live in folds/ (aerial_search.data.folds).
+    # An old random split left beside the manifests could be used by mistake.
+    rgb, thermal = _flight_dirs(tmp_path)
+    for number in range(4):
+        _sample(rgb, number)
+        _sample(thermal, number)
+    out = tmp_path / "out"
+    out.mkdir()
+    for name in ("train.jsonl", "validation.jsonl", "test.jsonl"):
+        (out / name).write_text("{}\n")
 
-    # Create five collections to ensure test/val splits
-    for flight_idx in range(5):
-        rgb = source / f"2024010{flight_idx}_site_{flight_idx}_VIS_0000"
-        thermal = source / f"2024010{flight_idx}_site_{flight_idx}_IR_0001"
-        rgb.mkdir(parents=True)
-        thermal.mkdir()
-        collections[f"site_{flight_idx}"] = Collection(
-            rgb.name, thermal.name, "0000", "0001"
-        )
+    counts = prepare_manifests(tmp_path, out, collections=FLIGHT)
 
-        # Each flight: 2 pairs (total 10)
-        for number in range(2):
-            _sample(rgb, number)
-            _sample(thermal, number)
-
-    counts = prepare_manifests(
-        source, tmp_path / "processed", seed=7, collections=collections
-    )
-
-    # No collection should be split across train/val/test.
-    assert sum(counts.values()) == 10
-    assert all(split >= 0 for split in counts.values())
-
-    # Verify determinism: same seed produces same split
-    counts2 = prepare_manifests(
-        source, tmp_path / "processed2", seed=7, collections=collections
-    )
-    assert counts == counts2
-
-    counts3 = prepare_manifests(
-        source, tmp_path / "processed3", seed=42, collections=collections
-    )
-    assert sum(counts3.values()) == 10
+    assert counts == {
+        "all_pairs": 4,
+        "full": 4,
+        "rgb_labelled": 4,
+        "thermal_labelled": 4,
+    }
+    assert sorted(p.name for p in out.iterdir()) == [
+        "all_pairs.jsonl",
+        "data_quality.json",
+        "full.jsonl",
+        "rgb_labelled.jsonl",
+        "thermal_labelled.jsonl",
+    ]
 
 
 def test_writes_one_manifest_per_camera_and_counts_boxes_once(tmp_path: Path) -> None:
