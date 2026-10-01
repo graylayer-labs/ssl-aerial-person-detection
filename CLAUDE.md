@@ -18,7 +18,7 @@ to the owner. It does not do routine work itself.
   own worktree, and carry on with other things while they run.
 - **Take back conclusions, not transcripts.** Every agent returns a short
   report. The detail goes on the issue, where the next agent can find it.
-- **Run independent tasks in parallel**, up to three agents at a time. The
+- **Run independent tasks in parallel**, up to two agents at a time. The
   epic's "Order of work" says which tasks are independent. One agent per
   issue.
 - **Verify before trusting.** Re-run the checks an agent reports, and test
@@ -424,6 +424,24 @@ metrics. Skip tests that only restate the implementation.
 ## Model tiering
 
 The owner pays for usage. Use the cheapest model that can do the job well.
+
+### Usage budget
+
+On 2026-10-01 one afternoon of agents used about 2.7 million tokens and
+reached 90% of the owner's plan. These rules exist because of that.
+
+- Sonnet is the default for every agent. Opus only where a wrong answer
+  corrupts results: pairing, splits, metrics, and their reviews.
+- One review per PR. A second review only if the first found something
+  blocking. Docs, config, tools, and small guards are read by the lead.
+- Cap every agent report at 60 lines, and say so in the brief.
+- Work that means looking at hundreds of images one by one goes to the owner
+  or to a cheaper method, not to an agent.
+- Each closing handoff records the tokens the issue cost, from the agent
+  notifications. The epic's "Decisions so far" line carries the figure, and
+  the epic body keeps a running total.
+- Above 80% of the plan: no new agents. The lead does cheap work only until
+  usage resets.
 
 Each issue carries an `agent:<model>` label. It names the model, and the
 table says which agent to run on it.
