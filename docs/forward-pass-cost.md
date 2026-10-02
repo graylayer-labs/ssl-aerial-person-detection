@@ -119,3 +119,56 @@ model and both cameras; time DINOv2 and NaFlex cleanly; time the large model
 if wanted; try batches of 8 at 512 px; measure thermal at its native
 640x512. Peak memory is the highest MPS driver allocation seen after a pass,
 not a true peak.
+
+## Measurements completed 2026-10-02
+
+Run by the lead with the laptop awake and unlocked, **on battery power**, 50
+frames per setting, seed 0, fp16 on MPS, patch tokens only, 2×2 average
+pooling for the pooled figures. Projections are for 29,668 images. The one
+earlier mains-powered figure (SigLIP 2 base 512, RGB, 92 ms) is about 25%
+faster than its battery equivalent below, so take the times here as upper
+bounds on mains power.
+
+| Model | Input | Camera | Grid | ms/image | Features fp16 | Pooled | Cache pooled | Time |
+|---|---|---|---|---|---|---|---|---|
+| SigLIP 2 base/16 | 512, single | thermal | 32×32 | 124 | 1.5 MB | 0.38 MB | 11.7 GB | 61 min |
+| SigLIP 2 base/16 | 1024, 4 tiles | thermal | 64×64 | 434 | 6.0 MB | 1.5 MB | 46.7 GB | 215 min |
+| SigLIP 2 NaFlex | 1,024 tokens (about 512) | RGB | 24×42 | 122 | 1.48 MB | 0.37 MB | 11.5 GB | 60 min |
+| SigLIP 2 NaFlex | 4,096 tokens (about 1024) | RGB | 48×85 | 717 | 5.98 MB | 1.48 MB | 45.9 GB | 355 min |
+| SigLIP 2 NaFlex | 1,024 tokens | thermal | 28×35 | 126 | 1.44 MB | 0.35 MB | 10.8 GB | 62 min |
+| SigLIP 2 NaFlex | 4,096 tokens | thermal | 57×71 | 778 | 5.93 MB | 1.44 MB | 44.7 GB | 385 min |
+| DINOv2 base/14 | 518, single | RGB | 37×37 | 147 | 2.01 MB | 0.47 MB | 14.8 GB | 73 min |
+| DINOv2 base/14 | 1036, 4 tiles | RGB | 74×74 | 596 | 8.02 MB | 2.01 MB | 62.4 GB | 295 min |
+| DINOv2 base/14 | 518, single | thermal | 37×37 | 148 | 2.01 MB | 0.47 MB | 14.8 GB | 73 min |
+| DINOv2 base/14 | 1036, 4 tiles | thermal | 74×74 | 600 | 8.02 MB | 2.01 MB | 62.4 GB | 297 min |
+
+Peak MPS allocation was 0.23 to 0.24 GB for single passes and 1.24 to 1.29 GB
+for tiled ones. No operation fell back to the CPU. Weight checksums are in the
+section above.
+
+## Recommendation
+
+**First cache: SigLIP 2 NaFlex at a 1,024-token budget, pooled 2×2, fp16.**
+About 11.5 GB for RGB and thermal together, and 60 minutes on battery or
+about 45 on mains, built as one session per camera to respect the 30-minute
+rule.
+
+Why NaFlex over the fixed 512 model at the same cost: it keeps the frame's
+aspect ratio. A 16:9 RGB frame becomes a 24×42 grid instead of being squashed
+into 32×32, so a person is not narrowed by a factor of 1.8 before the model
+sees it. The fixed-512 model is the fallback if the head's results show the
+variable grid causes trouble.
+
+Why not 1024 pixels: four to six hours and 45 GB pooled, and 185 GB at full
+detail. Out of reach on the laptop. If the head's results show that 16-pixel
+patches pooled 2×2 lose the smallest people, the next step is a cloud run at
+higher resolution, which is a spending request.
+
+Why not DINOv2 first: 20% slower, 30% larger features, and the owner's
+preference for a non-Meta model. It stays as the comparison in the backbone
+study.
+
+**Open:** whether 32-pixel pooled cells carry enough to find a 10-pixel
+person. That is the first question for the detection head (#66), and the
+reason the cache keeps the unpooled option available at 46 GB if the disk
+allows it later.
