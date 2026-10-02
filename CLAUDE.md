@@ -50,7 +50,8 @@ Agent sessions end and context is lost. The project board is the memory.
 
 If there is no issue for the work, create one from the task template. Every
 PR closes an issue; a PR that would only reference one gets its own issue
-first, however small.
+first, however small. Dependabot PRs are the one exception: they close no
+issue, and the lead merges them when `checks` passes.
 
 ## Leave a trail
 
@@ -150,6 +151,8 @@ CI proves the code runs. It does not prove a result is valid.
 - Docs, config, and formatting-only changes: the main session reads the diff
   itself.
 - Say in the PR which of the two happened.
+- The PR's Evidence section holds the pasted output of the lead's own re-run
+  of the checks, not a summary such as "all passed".
 
 ## Ask the owner first
 
