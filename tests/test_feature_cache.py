@@ -8,7 +8,7 @@ from PIL import Image
 from transformers import Siglip2ImageProcessor, Siglip2VisionConfig, Siglip2VisionModel
 
 from aerial_search.experiments import feature_cache as fc
-from aerial_search.models.backbone import NaflexExtractor, pool2
+from aerial_search.models.backbone import Extraction, NaflexExtractor, pool2
 
 SETTINGS = fc.CacheSettings(
     model="fake",
@@ -29,9 +29,14 @@ class FakeExtractor:
     def prepare(self, image: Image.Image) -> float:  # runs in a worker thread
         return float(np.asarray(image.convert("RGB"), dtype=np.float32).mean())
 
-    def extract(self, prepared: float) -> np.ndarray:
+    def extract(self, prepared: float) -> Extraction:
         self.calls += 1
-        return np.full((2, 3, 4), prepared, dtype=np.float16)
+        return Extraction(
+            np.full((2, 3, 4), prepared, dtype=np.float16),
+            image_size=(32, 18),
+            resized_size=(80, 48),
+            patch_grid=(3, 5),
+        )
 
 
 def make_frames(root: Path, names: dict[str, str]) -> list[fc.Frame]:
@@ -76,7 +81,23 @@ def test_writes_fp16_features_per_image_with_camera_and_provenance(tmp_path, fra
     entry = index["VIS_1/a_0.jpeg"]
     assert entry["grid"] == [2, 3] and entry["sha256"] == "sha0"
     assert entry["run"] == "r1" and entry["commit"] == "abc"
+    assert entry["image_size"] == [32, 18] and entry["resized_size"] == [80, 48]
+    assert entry["patch_grid"] == [3, 5] and entry["pooling"] == 2
     assert json.loads((cache / "cache.json").read_text())["settings"]["model"] == "fake"
+
+
+def test_each_stored_file_holds_its_own_images_features(tmp_path, frames):
+    build(tmp_path, frames, FakeExtractor())
+
+    for frame in frames:
+        with Image.open(tmp_path / "raw" / frame.path) as image:
+            expected = np.asarray(image.convert("RGB"), dtype=np.float32).mean()
+        stored = fc.read_features(tmp_path / "cache", frame.path)
+        assert np.all(stored == np.float16(expected)), frame.path
+    values = {
+        float(fc.read_features(tmp_path / "cache", f.path)[0, 0, 0]) for f in frames
+    }
+    assert len(values) == len(frames)  # the three images really differ
 
 
 def test_second_run_skips_finished_images_and_computes_the_rest(tmp_path, frames):
@@ -203,10 +224,85 @@ def test_naflex_extractor_returns_a_pooled_fp16_grid_for_either_camera():
     assert np.array_equal(extractor(thermal), same)
 
 
-def test_pool2_drops_the_odd_last_row_and_column():
+def test_pool2_keeps_odd_edges_and_averages_only_real_cells():
     x = torch.arange(3 * 5 * 2, dtype=torch.float32).reshape(3, 5, 2)
-    assert pool2(x, 2).shape == (1, 2, 2)
+
+    pooled = pool2(x, 2)
+
+    assert pooled.shape == (2, 3, 2)  # ceil, nothing dropped
+    assert torch.allclose(pooled[0, 0], x[:2, :2].mean(dim=(0, 1)))
+    assert torch.allclose(pooled[0, 2], x[:2, 4:].mean(dim=(0, 1)))  # edge column
+    assert torch.allclose(pooled[1, 0], x[2:, :2].mean(dim=(0, 1)))  # edge row
+    assert torch.equal(pooled[1, 2], x[2, 4])  # the corner is one real cell
     assert pool2(x, 1) is x
+
+
+class PixelModel:
+    """A stand-in tower whose token features are the patch pixels themselves, so
+    a bright patch can be followed through to a pooled cell."""
+
+    dtype = torch.float32
+
+    def parameters(self):
+        return iter([torch.zeros(1)])
+
+    def __call__(self, pixel_values, pixel_attention_mask, spatial_shapes):
+        class Out:
+            last_hidden_state = pixel_values
+
+        return Out()
+
+
+def test_naflex_extractor_places_a_bright_patch_in_its_cell_and_records_geometry():
+    processor = Siglip2ImageProcessor(patch_size=16)
+    extractor = NaflexExtractor(PixelModel(), processor, token_budget=64, pooling=2)
+    image = Image.new("RGB", (112, 80), (0, 0, 0))  # a 7 x 9 patch grid
+    # white in the bottom-right corner: inside patch (row 6, column 8)
+    image.paste((255, 255, 255), (104, 70, 112, 80))
+    prepared = extractor.prepare(image)
+    tokens = prepared.inputs["pixel_values"][0, : 7 * 9].reshape(7, 9, -1)
+
+    result = extractor.extract(prepared)
+
+    assert result.array.dtype == np.float16
+    assert result.array.shape == (4, 5, 768)  # ceil of 7 x 9 over 2 x 2
+    assert result.image_size == (112, 80)
+    assert result.resized_size == (144, 112)
+    assert result.patch_grid == (7, 9)
+    # the corner cell holds one real patch, so it equals that patch and is not
+    # halved or quartered by padding
+    assert np.allclose(result.array[3, 4], tokens[6, 8].numpy(), atol=1e-2)
+    # an interior cell is a plain 2 x 2 mean
+    assert np.allclose(
+        result.array[1, 2], tokens[2:4, 4:6].mean(dim=(0, 1)).numpy(), atol=1e-2
+    )
+    # and it is the brightest cell
+    brightest = np.unravel_index(result.array.mean(axis=2).argmax(), (4, 5))
+    assert tuple(int(v) for v in brightest) == (3, 4)
+
+
+def test_cell_boxes_cover_the_source_image_with_a_partial_edge_cell():
+    entry = {
+        "image_size": [112, 80],
+        "resized_size": [144, 112],
+        "patch_grid": [7, 9],
+        "grid": [4, 5],
+        "pooling": 2,
+    }
+
+    boxes = fc.cell_boxes(entry)
+
+    assert boxes.shape == (4, 5, 4)
+    sx, sy = 112 / 144, 80 / 112
+    assert np.allclose(boxes[0, 0], [0, 0, 32 * sx, 32 * sy])
+    assert np.allclose(boxes[1, 2], [64 * sx, 32 * sy, 96 * sx, 64 * sy])
+    # the last row and column hold one patch row/column: half-size cells
+    assert np.allclose(boxes[3, 4], [128 * sx, 96 * sy, 112, 80])
+    assert boxes[:, :, 0].min() == 0 and boxes[:, :, 2].max() == 112
+    assert boxes[:, :, 1].min() == 0 and boxes[:, :, 3].max() == 80
+    # cells tile the image: each row's widths sum to the image width
+    widths = boxes[0, :, 2] - boxes[0, :, 0]
+    assert widths.sum() == pytest.approx(112)
 
 
 @pytest.fixture

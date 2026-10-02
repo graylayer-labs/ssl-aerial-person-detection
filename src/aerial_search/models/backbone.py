@@ -79,22 +79,48 @@ def weight_checksums(repo: str) -> dict[str, str]:
 
 
 def pool2(grid_features: torch.Tensor, k: int = 2) -> torch.Tensor:
-    """Average-pool an h x w x d grid by k x k. An odd side loses its last row
-    or column. `k` of 1 returns the grid unchanged."""
+    """Average-pool an h x w x d grid by k x k without dropping anything.
+
+    The output is ceil(h / k) x ceil(w / k). A cell on an odd edge covers fewer
+    than k x k patches and is the mean of those real patches only; padding is
+    never averaged in. `k` of 1 returns the grid unchanged.
+    """
     if k == 1:
         return grid_features
-    x = grid_features.permute(2, 0, 1).unsqueeze(0)
-    return F.avg_pool2d(x, k).squeeze(0).permute(1, 2, 0)
+    x = grid_features.permute(2, 0, 1).unsqueeze(0).float()
+    pooled = F.avg_pool2d(x, k, ceil_mode=True, count_include_pad=False)
+    return pooled.squeeze(0).permute(1, 2, 0).to(grid_features.dtype)
+
+
+# Bump when `prepare`, `extract` or `pool2` change what a feature file holds.
+PREPROCESSING_VERSION = 1
+
+
+@dataclass(frozen=True)
+class Prepared:
+    inputs: dict[str, torch.Tensor]
+    image_size: tuple[int, int]  # source width, height in pixels
+
+
+@dataclass(frozen=True)
+class Extraction:
+    """Pooled features and the geometry that maps their cells back to pixels."""
+
+    array: np.ndarray  # ceil(h/k) x ceil(w/k) x d, float16
+    image_size: tuple[int, int]  # source width, height in pixels
+    resized_size: tuple[int, int]  # width, height after the processor's resize
+    patch_grid: tuple[int, int]  # h, w in patches, before pooling
 
 
 class NaflexExtractor:
-    """One image to a pooled grid of patch features, as a NumPy fp16 array.
+    """One image to a pooled grid of patch features and its geometry.
 
-    The image keeps its aspect ratio; the processor picks the grid that fits
-    `token_budget` patches. Any image mode is converted to RGB first, so a
-    one-channel thermal frame is replicated to three identical channels. The
-    features are the last hidden state of the vision tower, not the pooled
-    embedding.
+    The image keeps its aspect ratio but is stretched to a whole number of
+    patches in each direction (`resized_size`), so the patch grid covers the
+    entire source image. The processor picks the grid that fits `token_budget`
+    patches. Any image mode is converted to RGB first, so a one-channel thermal
+    frame is replicated to three identical channels. The features are the last
+    hidden state of the vision tower, not the pooled embedding.
     """
 
     def __init__(self, model, processor, token_budget: int, pooling: int) -> None:
@@ -103,29 +129,34 @@ class NaflexExtractor:
         self.token_budget = token_budget
         self.pooling = pooling
 
-    def prepare(self, image: Image.Image) -> dict[str, torch.Tensor]:
+    def prepare(self, image: Image.Image) -> Prepared:
         """Resize and patchify on the CPU; safe to call from worker threads."""
-        return self.processor(
+        inputs = self.processor(
             images=[image.convert("RGB")],
             return_tensors="pt",
             max_num_patches=self.token_budget,
         )
+        return Prepared(inputs, (image.width, image.height))
 
     def __call__(self, image: Image.Image) -> np.ndarray:
-        return self.extract(self.prepare(image))
+        return self.extract(self.prepare(image)).array
 
-    def extract(self, inputs: dict[str, torch.Tensor]) -> np.ndarray:
+    def extract(self, prepared: Prepared) -> Extraction:
         """Run the vision tower on prepared inputs and pool the patch grid."""
+        inputs = prepared.inputs
         device = next(self.model.parameters()).device
         feed = {
             k: v.to(device, self.model.dtype if v.is_floating_point() else v.dtype)
             for k, v in inputs.items()
         }
+        h, w = (int(v) for v in inputs["spatial_shapes"][0])
         with torch.no_grad():
             tokens = self.model(**feed).last_hidden_state[0]
-            h, w = (int(v) for v in inputs["spatial_shapes"][0])
             grid = pool2(tokens[: h * w].reshape(h, w, -1), self.pooling)
             host = grid.to(torch.float16).cpu()
         if device.type == "mps":
             torch.mps.synchronize()
-        return host.numpy()
+        patch = int(self.processor.patch_size)
+        return Extraction(
+            host.numpy(), prepared.image_size, (w * patch, h * patch), (h, w)
+        )

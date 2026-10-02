@@ -37,6 +37,8 @@ from typing import Any, Protocol
 import numpy as np
 from PIL import Image
 
+from aerial_search.models.backbone import Extraction
+
 # A recomputed feature may differ from the stored one by float noise: the
 # largest difference, relative to the largest stored value, must stay below this.
 VERIFY_TOLERANCE = 0.02
@@ -53,8 +55,8 @@ class Extractor(Protocol):
         """The CPU work for one image (thread-safe); input to `extract`."""
         ...
 
-    def extract(self, prepared: Any, /) -> np.ndarray:
-        """An h x w x d float16 array of features, from the device."""
+    def extract(self, prepared: Any, /) -> Extraction:
+        """Pooled float16 features and their geometry, from the device."""
         ...
 
 
@@ -148,6 +150,36 @@ def check_settings(cache_dir: Path, settings: CacheSettings) -> None:
         )
 
 
+def cell_boxes(entry: Mapping[str, Any]) -> np.ndarray:
+    """Source-pixel boxes of every cell of an index entry's feature grid.
+
+    Returns an array of shape (grid h, grid w, 4) holding (x0, y0, x1, y1).
+    The processor stretches the source image to `resized_size`, a whole
+    number of patches, so one patch is `rw / pw` by `rh / ph` resized pixels,
+    which is `iw / pw` by `ih / ph` source pixels. With pooling k, cell
+    (i, j) holds patch rows k*i .. min(k*(i+1), ph) - 1 and patch columns
+    k*j .. min(k*(j+1), pw) - 1, so
+
+        x0 = iw * (k*j) / pw        x1 = iw * min(k*(j+1), pw) / pw
+        y0 = ih * (k*i) / ph        y1 = ih * min(k*(i+1), ph) / ph
+
+    An odd last row or column holds fewer than k patches and its box is
+    correspondingly narrower. The boxes tile the source image exactly.
+    """
+    iw, ih = entry["image_size"]
+    ph, pw = entry["patch_grid"]
+    gh, gw = entry["grid"]
+    k = entry["pooling"]
+    x = np.minimum(np.arange(gw + 1) * k, pw) * iw / pw
+    y = np.minimum(np.arange(gh + 1) * k, ph) * ih / ph
+    boxes = np.empty((gh, gw, 4))
+    boxes[..., 0] = x[None, :-1]
+    boxes[..., 2] = x[None, 1:]
+    boxes[..., 1] = y[:-1, None]
+    boxes[..., 3] = y[1:, None]
+    return boxes
+
+
 def _feature_path(cache_dir: Path, image_path: str) -> Path:
     return cache_dir / "features" / Path(image_path).with_suffix(".npy")
 
@@ -226,7 +258,19 @@ def _verify(
     for frame in sample:
         stored = np.asarray(read_features(cache_dir, frame.path), dtype=np.float32)
         prepared = _prepare(extractor, data_root / frame.path)
-        fresh = np.asarray(extractor.extract(prepared), dtype=np.float32)
+        extraction = extractor.extract(prepared)
+        fresh = np.asarray(extraction.array, dtype=np.float32)
+        entry = read_index(cache_dir)[frame.path]
+        if (
+            list(extraction.image_size) != entry["image_size"]
+            or list(extraction.resized_size) != entry["resized_size"]
+            or list(extraction.patch_grid) != entry["patch_grid"]
+        ):
+            raise CacheError(
+                f"{frame.path}: recomputed geometry differs from the index "
+                f"({extraction.resized_size} from {extraction.image_size}); the "
+                "cache does not match this code"
+            )
         if stored.shape != fresh.shape:
             raise CacheError(
                 f"{frame.path}: stored grid {stored.shape} but recomputed "
@@ -287,7 +331,8 @@ def build_cache(
             handle.write(b"\n")
     with index_path.open("a") as handle:
         for n, (frame, prepared) in enumerate(_prepared(extractor, todo, data_root), 1):
-            array = extractor.extract(prepared)
+            extraction = extractor.extract(prepared)
+            array = extraction.array
             if array.dtype != np.dtype(settings.dtype):
                 raise CacheError(
                     f"{frame.path}: extractor gave {array.dtype}, the cache "
@@ -298,6 +343,10 @@ def build_cache(
                 "path": frame.path,
                 "camera": frame.camera,
                 "collection_id": frame.collection_id,
+                "image_size": list(extraction.image_size),
+                "resized_size": list(extraction.resized_size),
+                "patch_grid": list(extraction.patch_grid),
+                "pooling": settings.pooling,
                 "grid": list(array.shape[:2]),
                 "dim": int(array.shape[2]),
                 "sha256": frame.sha256,
