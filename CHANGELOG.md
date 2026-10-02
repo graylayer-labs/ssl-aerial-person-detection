@@ -4,7 +4,26 @@ Key changes to the project, newest first. Routine fixes and wording changes
 are left out; the git log has those. Entries are grouped by epic and date, and
 each links to the issue or pull request that holds the detail.
 
-## Epic: Trusted ground (in progress)
+## Epic: Off-the-shelf bar (in progress)
+
+### 2026-10-02
+
+**Changed**
+- The lead keeps the owner informed on a fixed rhythm: short updates when
+  something finishes or after 30 minutes of silence, one ask at a time, a
+  usage line, and reversible choices made alone and reported, not asked.
+  ([#74](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/74))
+
+**Found**
+- One forward pass of SigLIP 2 at about 512 pixels takes 92 to 126 ms per
+  image on the laptop, so a pooled feature cache for the whole dataset is
+  about 11.5 GB and about an hour. 1024-pixel input is four to six hours and
+  does not fit the disk. First cache: SigLIP 2 NaFlex, 1,024-token budget,
+  pooled 2×2.
+  ([#64](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/64),
+  [note](docs/forward-pass-cost.md))
+
+## Epic: Trusted ground (closing)
 
 ### 2026-10-01
 
