@@ -20,7 +20,7 @@ conversation.
 6. If the session surfaced follow-up work, create issues for it from the task
    template and add them to the board.
 7. Tell the owner with an update in the form under "Keeping the owner
-   informed" in `CLAUDE.md`: what finished, the tokens it cost, and the one
+   informed" in `CLAUDE.md`: what finished and the one
    thing that needs them, if any. Open anything they need to look at.
 
 ## Comment template
@@ -51,7 +51,6 @@ conversation.
 **Open questions for the owner**
 - ...
 
-**Cost:** <tokens used by agents on this issue, from the task notifications>
 ```
 
 ## When the issue is finished

@@ -206,10 +206,9 @@ Ten lines at most, in plain words, in this order:
 1. **Done:** one line per finished thing, saying what it means for the
    project, with its issue or PR number.
 2. **Running:** one line.
-3. **Usage:** agent tokens since the last update, and for the epic so far.
-4. **Insight**, optional, at most one: something learned that a senior
+3. **Insight**, optional, at most one: something learned that a senior
    engineer would find worth knowing. It also goes in the issue's guide note.
-5. **Last line:** the one thing needed from the owner, with exact steps, or
+4. **Last line:** the one thing needed from the owner, with exact steps, or
    "Nothing needed from you."
 
 Explain a term the first time the owner meets it. Give each thing one name:
@@ -226,8 +225,9 @@ unless the owner must act on one.
   do. One ask at a time.
 - An unanswered ask waits on its issue under `needs-owner`. Repeat it only
   when it blocks the next task, and say that it does.
-- Before work expected to cost more than about 500k agent tokens, give the
-  estimate and what it buys in the update.
+- Do not report usage in updates. The owner sees it in their status line.
+  Mention it only when the plan is above 80%, or before one piece of work
+  that is unusually expensive, with what it buys.
 
 ### Showing things
 
@@ -518,7 +518,9 @@ The owner pays for usage. Use the cheapest model that can do the job well.
 ### Usage budget
 
 On 2026-10-01 one afternoon of agents used about 2.7 million tokens and
-reached 90% of the owner's plan. These rules exist because of that.
+reached 90% of the owner's plan. These rules exist because of that. Keep
+them quietly: on 2026-10-02 the owner asked the lead to stop reporting and
+tallying usage ("youre burning tokens caring about tokens").
 
 - Sonnet is the default for every agent. Opus only where a wrong answer
   corrupts results: pairing, splits, metrics, and their reviews.
@@ -527,11 +529,10 @@ reached 90% of the owner's plan. These rules exist because of that.
 - Cap every agent report at 60 lines, and say so in the brief.
 - Work that means looking at hundreds of images one by one goes to the owner
   or to a cheaper method, not to an agent.
-- Each closing handoff records the tokens the issue cost, from the agent
-  notifications. The epic's "Decisions so far" line carries the figure, and
-  the epic body keeps a running total.
 - Above 80% of the plan: no new agents. The lead does cheap work only until
-  usage resets.
+  usage resets. The owner's status line saves the current figures to
+  `~/.claude/usage-latest.json`; read it before starting an agent. If the
+  file is missing or stale, carry on.
 
 Each issue carries an `agent:<model>` label. It names the model, and the
 table says which agent to run on it.

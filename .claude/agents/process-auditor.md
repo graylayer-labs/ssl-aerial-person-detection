@@ -54,8 +54,7 @@ command and what it showed.
 14. No agent did something on the "Ask the owner first" list without a
     recorded approval.
 15. The usage budget in `CLAUDE.md` was kept: at most two agents at a time,
-    one review per PR unless the first found something blocking, a token
-    figure in every closing handoff, and a running total on the epic.
+    and one review per PR unless the first found something blocking.
 16. Every merged PR closes an issue. A `Refs` PR with no closing issue is a
     finding.
 17. A rule change in `CLAUDE.md` was carried into the skill or agent file
