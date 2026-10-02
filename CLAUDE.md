@@ -474,7 +474,13 @@ to its issue or PR. No version numbers.
   model, weight checksum, token budget, pooling and dtype, and a run with any
   of them different is refused. Rerun a crashed session unchanged. Split a
   camera with `--part` to stay under 30 minutes. See
-  `docs/forward-pass-cost.md`.
+  `docs/forward-pass-cost.md`. **The feature cache is the one exception to
+  "the run directory is the only place an experiment writes":** features go
+  to the cache directory, which holds its sessions' run directories under
+  `runs/`. Each feature file stays traceable to a commit through its
+  `index.jsonl` line (source SHA-256, the writing run's name and commit), that
+  run's `run.json` (clean `main` unless scratch, data verification), and
+  `cache.json` (weights, revision, settings).
 - Any number quoted in a doc or README must be reproducible from a committed
   config. If a number cannot be traced, remove it.
 - Report negative results. State what was expected, what happened, and the

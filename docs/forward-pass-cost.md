@@ -181,9 +181,12 @@ allows it later.
 extractor, shared with `tools/forward_pass_cost.py`).
 
 - **Layout.** `outputs/features/siglip2-base-naflex-1024tok/` holds
-  `cache.json` (the settings: model, weight SHA-256, token budget, pooling,
-  dtype), `index.jsonl` (one line per image: camera, grid, source SHA-256 from
-  the pinned list, run, commit) and `features/<clip dir>/<stem>.npy`, one
+  `cache.json` (the settings that must match: model, hub revision, weight
+  SHA-256, token budget, pooling, dtype, preprocessing version; and the
+  `transformers` version, which only warns), `index.jsonl` (one line per
+  image: camera, `image_size`, `resized_size`, `patch_grid`, `pooling`,
+  `grid`, source SHA-256 from the pinned list, run, commit) and
+  `features/<clip dir>/<stem>.npy`, one
   fp16 `h x w x 768` array per image, readable with `np.load(mmap_mode="r")`.
   One file per image over one file per clip: each write is one atomic rename,
   a crash loses only the image in flight, and a fold reads only its files.
@@ -192,10 +195,32 @@ extractor, shared with `tools/forward_pass_cost.py`).
 - **Sessions.** Each session is a run under the cache,
   `.../runs/<camera>-<timestamp>/run.json`, with the settings, weight
   checksums, the manifest's SHA-256 and the data verification. A cache with
-  other settings is refused before a run starts. Run sessions one at a time:
-  the index has no lock.
+  other settings is refused before a run starts. One session at a time: a
+  session holds `session.lock` in the cache directory and a second refuses
+  while it exists. After a killed session, delete the lock with the `rm`
+  command the error prints.
 - **Resume.** Run the same command again. Finished images are skipped and 8
-  of them (`--verify`) are recomputed and compared; a mismatch stops the run.
+  of them (`--verify`) are recomputed and compared; a relative RMS difference
+  above 1e-3 or a changed geometry stops the run. The worst measured drift is
+  in the session's `summary.json`. A finished image whose pinned source hash
+  differs from the one in the index is recomputed and counted as `stale`.
+- **Geometry: which pixels a cell covers.** The processor stretches the source
+  image (`iw` x `ih`) to a whole number of 16-pixel patches, `resized_size`,
+  with a `patch_grid` of `ph` rows and `pw` columns, so the grid covers the
+  whole image and one patch is `iw / pw` by `ih / ph` source pixels (not
+  square: x and y scales differ). Pooling by `k` (2) gives a
+  `ceil(ph / k)` x `ceil(pw / k)` grid; a cell on an odd edge averages the
+  real patches only, never padding. Cell (i, j) covers source pixels
+
+  ```
+  x0 = iw * (k*j) / pw        x1 = iw * min(k*(j+1), pw) / pw
+  y0 = ih * (k*i) / ph        y1 = ih * min(k*(i+1), ph) / ph
+  ```
+
+  so the last row or column of an odd grid is a half-size cell, and the boxes
+  tile the image exactly. `feature_cache.cell_boxes(entry)` returns them as an
+  `(h, w, 4)` array of `(x0, y0, x1, y1)`; use it rather than re-deriving.
+  Thermal at a 1,024-token budget is a 28 x 35 patch grid, pooled to 14 x 18.
 - **Speed.** Device-bound at about 121 ms per image (extract only, mains, 40
   frames). Decoding the 3840x2160 RGB frames (57 ms) and patchifying (23 ms)
   run ahead in threads. Scratch runs gave 6.0 to 7.4 images/s for both
