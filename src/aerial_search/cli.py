@@ -297,6 +297,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--manifests", type=Path, default=Path("data/manifests/wisard-full")
     )
     from aerial_search.experiments.head_experiment import Recipe
+    from aerial_search.experiments.stem_experiment import StemRecipe
 
     defaults = Recipe()
     for name in ("steps", "batch_size", "eval_every", "upsample", "hidden", "top_k"):
@@ -307,9 +308,23 @@ def build_parser() -> argparse.ArgumentParser:
     head.add_argument("--device", help="default: mps if available, else cpu")
     head.add_argument(
         "--input-handling",
-        choices=["replicate", "equalise"],
-        help="optional check that --cache was made with this thermal input "
-        "handling (#68); the arm is read from the cache and recorded in run.json",
+        choices=["replicate", "equalise", "stem"],
+        help="thermal input arm (#68). replicate and equalise are read from "
+        "--cache and this only checks it; stem trains a learned input stem "
+        "before the frozen backbone and takes its geometry from the replicate "
+        "--cache (thermal only; slow: see docs/thermal-input-ablation.md)",
+    )
+    stem_defaults = StemRecipe()
+    for name in ("micro_batch", "eval_batch", "stem_hidden", "validation_stride"):
+        flag = "--" + name.replace("_", "-")
+        head.add_argument(
+            flag, type=int, default=getattr(stem_defaults, name), help="stem arm only"
+        )
+    head.add_argument(
+        "--loss-scale",
+        type=float,
+        default=stem_defaults.loss_scale,
+        help="stem arm only",
     )
     _add_fold_flag(head)
     _add_run_flags(head)
@@ -498,7 +513,30 @@ def main(argv: list[str] | None = None) -> None:
         names = ("steps", "batch_size", "learning_rate", "weight_decay", "eval_every")
         names += ("upsample", "hidden", "top_k")
         recipe = head_experiment.Recipe(**{n: getattr(args, n) for n in names})
+        stem = args.input_handling == "stem"
         try:
+            if stem:
+                from aerial_search.experiments import stem_experiment
+
+                extra = ("micro_batch", "eval_batch", "stem_hidden", "loss_scale")
+                extra += ("validation_stride",)
+                summary = stem_experiment.run_stem_head(
+                    cache_dir=args.cache,
+                    manifests=args.manifests,
+                    data_root=args.data_root,
+                    fold=args.fold,
+                    camera=args.camera,
+                    percent=args.percent,
+                    seed=args.seed,
+                    recipe=stem_experiment.StemRecipe(
+                        **asdict(recipe), **{n: getattr(args, n) for n in extra}
+                    ),
+                    scratch=args.scratch,
+                    run_name=args.run_name,
+                    device=torch.device(args.device) if args.device else get_device(),
+                )
+                print(json.dumps(summary, indent=2))
+                return
             summary = head_experiment.run_head(
                 cache_dir=args.cache,
                 manifests=args.manifests,
@@ -517,6 +555,7 @@ def main(argv: list[str] | None = None) -> None:
             feature_cache.CacheError,
             head_experiment.LeakError,
             run.ProvenanceError,
+            ValueError,
         ) as error:
             raise SystemExit(f"refusing to start: {error}") from error
         print(json.dumps(summary, indent=2))

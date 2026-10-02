@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from pathlib import Path
 
@@ -562,7 +563,7 @@ def test_missing_frames_lists_what_the_manifests_reference_but_the_cache_lacks(
 
 
 def other_arm() -> fc.CacheSettings:
-    return fc.CacheSettings(**{**SETTINGS.__dict__, "input_handling": "equalise"})
+    return dataclasses.replace(SETTINGS, input_handling="equalise")
 
 
 def test_the_default_input_handling_is_replicate_and_names_the_existing_cache():

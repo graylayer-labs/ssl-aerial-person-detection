@@ -76,8 +76,10 @@ class ThermalStem(nn.Module):
         self.inp = nn.Conv2d(3, hidden, 3, padding=1)
         self.act = nn.GELU()
         self.out = nn.Conv2d(hidden, 3, 3, padding=1)
+        bias = self.out.bias
+        assert bias is not None
         nn.init.zeros_(self.out.weight)
-        nn.init.zeros_(self.out.bias)
+        nn.init.zeros_(bias)
 
     def forward(self, image: Tensor) -> Tensor:
         return image + self.out(self.act(self.inp(image)))

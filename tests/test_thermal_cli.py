@@ -43,3 +43,19 @@ def test_cache_features_takes_the_thermal_input_arm() -> None:
     assert cli.build_parser().parse_args(base).thermal_input == "replicate"
     args = cli.build_parser().parse_args([*base, "--thermal-input", "equalise"])
     assert args.thermal_input == "equalise"
+
+
+def test_train_head_stem_dispatches_to_the_stem_runner(monkeypatch) -> None:
+    from aerial_search.experiments import stem_experiment
+
+    seen = {}
+    monkeypatch.setattr(
+        stem_experiment, "run_stem_head", lambda **kw: seen.update(kw) or {"test": {}}
+    )
+    command = ["train-head", "thermal", "--fold", "F", "--percent", "10"]
+    command += ["--input-handling", "stem", "--steps", "9", "--micro-batch", "4"]
+
+    cli.main([*command, "--scratch", "--device", "cpu"])
+
+    assert seen["recipe"].steps == 9 and seen["recipe"].micro_batch == 4
+    assert seen["scratch"] is True and seen["camera"] == "thermal"
