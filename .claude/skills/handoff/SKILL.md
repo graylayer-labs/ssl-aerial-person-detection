@@ -15,7 +15,9 @@ conversation.
    uncommitted and why.
 2. Run `uv run pytest` and `uv run ruff check .` and note the result.
 3. Draft a comment for the issue using the template below.
-4. Post it with `gh issue comment <number>`.
+4. Post it with `gh issue comment <number>`, before the issue closes. If a
+   merge closed the issue first, post it straight after. An owner approval
+   is quoted on the issue in its own comment before the approved action.
 5. Update the issue's status on the board if it changed.
 6. If the session surfaced follow-up work, create issues for it from the task
    template and add them to the board.
