@@ -97,6 +97,10 @@ size is already on the scale of the offset.
   that is about a thousand passes over the data; validation picks the step.
 - Validation `ap_iou25` every 250 steps and at the last step; the best step's
   weights are scored once on test. A NaN score (no people) never wins.
+- The step is chosen on the fold's **full** labelled validation split at
+  every fraction. So "1% of labels" means 1% of the training labels plus
+  all the validation labels: RGB with test site-day MtErie trains on 70
+  frames at 1% and selects on 1,339. `head-table` prints this under the table.
 - No augmentation: the features are cached, and a flipped image does not
   give flipped features.
 - Decoding: sigmoid, a sub-cell is a peak if it is the maximum of its 3×3
@@ -118,13 +122,42 @@ uv run aerial-search head-table outputs/detection-head/siglip2-base-naflex-1024t
   `index.jsonl`, and lists the cache sessions the features came from.
 - Train and validation records may not come from the test site-day (by the
   record's `site_day` and by its image path); test records must.
-- A normal run refuses a cache under `scratch-features/`, features written
-  by a scratch session or one without a run record, a source hash that is
-  not the pinned one, and an incomplete cache. A scratch run leaves missing
-  frames out and lists them in `run.json`.
-- `head-table` refuses scratch, unfinished, or duplicate runs.
+- A normal run refuses a cache under `scratch-features/` or holding a
+  `session.lock`, features written by a cache session that is scratch, not
+  completed, or without a run record, a source hash that is not the pinned
+  one, and an incomplete cache. A scratch run leaves missing frames out and
+  lists them in `run.json`.
+- `head-table` refuses scratch, unfinished, or duplicate runs, and runs whose
+  recipe, seed or `cache.json` hash differ. It records each fold's commit and
+  warns if commits differ, and gives beside each size-bucket mean the number
+  of folds that had people of that size.
 
 ## Limits of this first pass
 
-One person per sub-cell; the same step count at every fraction; one grid
-shape per camera (true of the cache today); no learning-rate search.
+One person per sub-cell, and one peak per 3×3 neighbourhood. People who share
+a sub-cell are lost at target assignment. People in touching sub-cells
+compete in the 3×3 peak test, which keeps one of two neighbours. Counts on
+the test manifests, by `uv run python tools/head_crowding.py
+outputs/features/siglip2-base-naflex-1024tok data/manifests/wisard-full`.
+"Adjacent" counts people whose sub-cell touches another occupied one;
+"unreachable" counts the fewest of those the peak test must lose:
+
+| camera | test site-day | people | share a sub-cell | adjacent | unreachable |
+|---|---|---|---|---|---|
+| RGB | MtErie | 1,770 | 1.3% | 19.5% | 9.3% |
+| RGB | Carnation | 7,189 | 1.2% | 22.5% | 10.5% |
+| RGB | FHL | 7,466 | 1.8% | 11.2% | 5.6% |
+| RGB | Baker | 6,012 | 1.4% | 2.3% | 1.1% |
+| RGB | all | 22,437 | 330 (1.5%) | 2,932 (13.1%) | 1,405 (6.3%) |
+| thermal | MtErie | 1,824 | 0.8% | 14.1% | 6.5% |
+| thermal | Carnation | 1,714 | 14.0% | 60.6% | 26.1% |
+| thermal | FHL | 8,079 | 1.8% | 7.5% | 3.7% |
+| thermal | Baker | 5,261 | 0.2% | 2.2% | 1.1% |
+| thermal | all | 16,878 | 405 (2.4%) | 2,020 (12.0%) | 925 (5.5%) |
+
+So recall on thermal Carnation cannot pass about 60%, whatever the
+features. Each run writes these counts for its splits to `training.json`
+(`crowding`), with the test's tied-score predictions.
+
+Also: the same step count at every fraction; one grid shape per camera
+(true of the cache today); no learning-rate search.
