@@ -486,8 +486,15 @@ def train_head(
     validate: Callable[[], float] | None = None,
     seed: int = 0,
 ) -> dict[str, Any]:
-    """AdamW with cosine decay for `recipe.steps` steps, batches drawn from a
-    fresh shuffle each pass. Every `eval_every` steps (and at the end)
+    """AdamW with cosine decay for `recipe.steps` steps.
+
+    Batches are consecutive slices of a running order of frames: whenever
+    fewer than a batch remain, a fresh shuffle of the whole split is appended.
+    So every frame is seen once per pass; a batch can hold the end of one
+    pass and the start of the next, and then may hold one frame twice; and a
+    split smaller than `batch_size` gives batches of the whole split (at 1%,
+    30 frames make batches of 30, not 32). Every `eval_every` steps (and at
+    the end)
     `validate` scores the head; the best-scoring weights are restored at the
     end (the earlier step wins a tie, and a NaN score never wins). Without
     `validate`, the final weights are kept.

@@ -2,6 +2,7 @@
 
 import json
 import math
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -417,24 +418,90 @@ def test_a_scratch_run_trains_selects_and_writes_its_report(tmp_path):
 # --- the results table ---------------------------------------------------------
 
 
-def fake_run(root: Path, camera, fold, percent, ap25, ap50, **record) -> None:
+def fake_run(
+    root: Path,
+    camera,
+    fold,
+    percent,
+    ap25,
+    ap50,
+    recipe=None,
+    cache_hash="c0",
+    tiny=True,
+    **record,
+) -> None:
     directory = root / f"{camera}-{fold}-{percent}"
     directory.mkdir(parents=True)
+    config = {
+        "camera": camera,
+        "fold": fold,
+        "percent": percent,
+        "recipe": {**asdict(he.Recipe()), **(recipe or {})},
+    }
     base = {
         "status": "completed",
         "scratch": False,
         "fold": fold,
         "commit": "abc",
-        "config": {"camera": camera, "fold": fold, "percent": percent},
+        "seed": 7,
+        "config": config,
+        "inputs": [
+            {"path": "x/test.jsonl", "sha256": "t"},
+            {"path": "cache/cache.json", "sha256": cache_hash},
+        ],
     }
     (directory / "run.json").write_text(json.dumps({**base, **record}))
     fppi = {"0.01": 0.0, "0.1": 0.1, "1.0": 0.5}
     bucket = {"ap_iou25": ap25, "ap_iou50": ap50, "recall_at_fppi": fppi}
+    empty = {"ap_iou25": None, "ap_iou50": None, "recall_at_fppi": {}}
     metrics = {
         "overall": {"ap_iou25": ap25, "ap_iou50": ap50, "recall_at_fppi": fppi},
-        "by_size": {"tiny": bucket, "small": bucket},
+        "by_size": {"tiny": bucket if tiny else empty, "small": bucket},
     }
     (directory / "detection_metrics.json").write_text(json.dumps(metrics))
+
+
+@pytest.mark.parametrize(
+    ("change", "field"),
+    [
+        ({"recipe": {"steps": 500}}, "recipe.steps"),
+        ({"recipe": {"hidden": 64}}, "recipe.hidden"),
+        ({"seed": 8}, "seed"),
+        ({"cache_hash": "c1"}, "cache.json"),
+    ],
+)
+def test_the_table_refuses_runs_made_differently(tmp_path, change, field):
+    from aerial_search.experiments import head_table
+
+    fake_run(tmp_path, "rgb", "A", 100, 0.2, 0.1)
+    fake_run(tmp_path, "thermal", "B", 1, 0.4, 0.3, **change)
+    with pytest.raises(head_table.TableError, match=field.replace(".", r"\.")):
+        head_table.collect(tmp_path)
+
+
+def test_the_table_records_commits_and_warns_when_they_differ(tmp_path):
+    from aerial_search.experiments import head_table
+
+    fake_run(tmp_path, "rgb", "A", 100, 0.2, 0.1)
+    fake_run(tmp_path, "rgb", "B", 100, 0.4, 0.3, commit="def")
+    runs = head_table.collect(tmp_path)
+    with pytest.warns(UserWarning, match="abc.*def"):
+        summary = head_table.summarise(runs)
+    assert summary["rgb"]["100"]["fold_commits"] == {"A": "abc", "B": "def"}
+
+
+def test_size_cells_say_how_many_folds_had_people_of_that_size(tmp_path):
+    from aerial_search.experiments import head_table
+
+    fake_run(tmp_path, "rgb", "A", 100, 0.2, 0.1, tiny=False)  # no tiny people
+    fake_run(tmp_path, "rgb", "B", 100, 0.4, 0.3)
+    summary = head_table.summarise(head_table.collect(tmp_path))
+    sizes = summary["rgb"]["100"]["by_size"]
+    assert sizes["tiny"]["n"] == 1 and sizes["small"]["n"] == 2
+    assert sizes["tiny"]["ap_iou25"][0] == pytest.approx(0.4)
+    text = head_table.markdown(summary)
+    assert "0.400 / 0.300 (n=1)" in text
+    assert "validation" in text  # the selection caveat is printed
 
 
 def test_the_table_gives_each_fold_and_the_mean_and_spread(tmp_path):

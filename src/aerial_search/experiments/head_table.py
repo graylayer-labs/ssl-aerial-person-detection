@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,14 @@ from aerial_search.evaluation.detection import METRICS_FILENAME, SIZE_BUCKETS
 
 FPPI = ("0.1", "1.0")
 METRICS = ("ap_iou25", "ap_iou50", *(f"recall_at_{f}fppi" for f in FPPI))
+
+
+SELECTION_CAVEAT = (
+    "Every run picks its best step on the fold's full labelled validation "
+    'split, whatever its label fraction: "1% of labels" means 1% of the '
+    "training labels plus all validation labels (RGB, test site-day MtErie: "
+    "70 training frames at 1%, 1,339 validation frames)."
+)
 
 
 class TableError(Exception):
@@ -63,11 +72,38 @@ def collect(root: Path) -> list[dict[str, Any]]:
                 "fold": config["fold"],
                 "percent": str(config["percent"]),
                 "commit": record.get("commit"),
+                "made_with": _made_with(record),
                 "overall": _scores(metrics["overall"]),
                 "by_size": {k: _scores(m) for k, m in metrics["by_size"].items()},
             }
         )
+    for run in runs[1:]:
+        first = runs[0]
+        for field, value in run["made_with"].items():
+            if value != first["made_with"].get(field):
+                raise TableError(
+                    f"{field} differs: {first['made_with'].get(field)!r} in "
+                    f"{first['name']}, {value!r} in {run['name']}; one table "
+                    "holds runs made the same way"
+                )
     return runs
+
+
+def _made_with(record: dict[str, Any]) -> dict[str, Any]:
+    """What must be equal across the runs of one table: every recipe field
+    (steps, batch, learning rate, head size...), the seed, and the cache,
+    by the SHA-256 of its cache.json."""
+    recipe = record["config"].get("recipe", {})
+    cache = [
+        i["sha256"]
+        for i in record.get("inputs", [])
+        if i["path"].endswith("/cache.json")
+    ]
+    return {
+        **{f"recipe.{k}": v for k, v in sorted(recipe.items())},
+        "seed": record.get("seed"),
+        "cache.json sha256": cache[0] if cache else None,
+    }
 
 
 def _spread(values: list[float]) -> tuple[float, float]:
@@ -88,12 +124,20 @@ def summarise(runs: list[dict[str, Any]]) -> dict[str, Any]:
                 f"twice ({folds[run['fold']]['name']} and {run['name']})"
             )
         folds[run["fold"]] = run
+    commits = sorted({str(r["commit"]) for r in runs})
+    if len(commits) > 1:
+        warnings.warn(
+            f"runs come from {len(commits)} commits ({', '.join(commits)}); "
+            "check that nothing that changes a result differs between them",
+            stacklevel=2,
+        )
     summary: dict[str, Any] = {}
     for (camera, percent), folds in sorted(cells.items()):
         entry: dict[str, Any] = {
             "folds": {f: r["overall"] for f, r in sorted(folds.items())},
             "n_folds": len(folds),
             "commits": sorted({str(r["commit"]) for r in folds.values()}),
+            "fold_commits": {f: r["commit"] for f, r in sorted(folds.items())},
             "mean": {},
             "std": {},
             "by_size": {},
@@ -106,9 +150,13 @@ def summarise(runs: list[dict[str, Any]]) -> dict[str, Any]:
             per_fold = [
                 r["by_size"][bucket] for r in folds.values() if bucket in r["by_size"]
             ]
+            # a fold with no people of this size has no score and is left out
             entry["by_size"][bucket] = {
-                metric: _spread([s[metric] for s in per_fold])
-                for metric in ("ap_iou25", "ap_iou50")
+                **{
+                    metric: _spread([s[metric] for s in per_fold])
+                    for metric in ("ap_iou25", "ap_iou50")
+                },
+                "n": sum(not math.isnan(s["ap_iou25"]) for s in per_fold),
             }
         summary.setdefault(camera, {})[percent] = entry
     return summary
@@ -129,7 +177,9 @@ def markdown(summary: dict[str, Any]) -> str:
         percents = sorted(by_percent, key=int)
         folds = sorted({f for e in by_percent.values() for f in e["folds"]})
         lines += [
-            f"### {camera}: test ap_iou25 / ap_iou50 per fold, mean ± sd over folds",
+            f"### {camera}: test ap_iou25 / ap_iou50 per fold, mean ± sd over "
+            "folds (labels = share of training labels; the step is chosen on "
+            "the full validation split)",
             "",
             "| labels | "
             + " | ".join(folds)
@@ -153,7 +203,10 @@ def markdown(summary: dict[str, Any]) -> str:
             )
         lines += [
             "",
-            f"### {camera}: test ap_iou25 / ap_iou50 by person size, mean over folds",
+            SELECTION_CAVEAT,
+            "",
+            f"### {camera}: test ap_iou25 / ap_iou50 by person size, mean over "
+            "the n folds with people of that size",
             "",
             "| labels | " + " | ".join(SIZE_BUCKETS) + " |",
             "|---" * (len(SIZE_BUCKETS) + 1) + "|",
@@ -162,6 +215,7 @@ def markdown(summary: dict[str, Any]) -> str:
             sizes = by_percent[percent]["by_size"]
             cells = [
                 f"{_fmt(sizes[b]['ap_iou25'][0])} / {_fmt(sizes[b]['ap_iou50'][0])}"
+                f" (n={sizes[b]['n']})"
                 for b in SIZE_BUCKETS
             ]
             lines.append(f"| {percent}% | " + " | ".join(cells) + " |")
