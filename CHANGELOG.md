@@ -8,6 +8,12 @@ each links to the issue or pull request that holds the detail.
 
 ### 2026-10-02
 
+**Changed**
+- The lead keeps the owner informed on a fixed rhythm: short updates when
+  something finishes or after 30 minutes of silence, one ask at a time, a
+  usage line, and reversible choices made alone and reported, not asked.
+  ([#74](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/74))
+
 **Found**
 - One forward pass of SigLIP 2 at about 512 pixels takes 92 to 126 ms per
   image on the laptop, so a pooled feature cache for the whole dataset is
