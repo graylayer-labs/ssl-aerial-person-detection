@@ -464,3 +464,93 @@ def test_a_session_lock_blocks_a_second_session_and_is_released(tmp_path, datase
     run_features(tmp_path, dataset)
     assert not (cache / "session.lock").exists()
     run_features(tmp_path, dataset, session="s2")  # released, so a second works
+
+
+def write_fold(manifests: Path, files: dict[str, list[dict]]) -> None:
+    for name, records in files.items():
+        path = manifests / "folds" / "siteday" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(json.dumps(r) for r in records))
+
+
+UNPAIRED = {"site_day": "siteday", "collection_id": "c1", "camera": "rgb"}
+CACHE = "repo/outputs/scratch-features/siglip2-base-naflex-1024tok"
+
+
+def test_a_frame_only_in_a_fold_manifest_is_selected_after_the_paired_ones(
+    tmp_path, dataset
+):
+    raw, manifests = dataset
+    write_fold(
+        manifests,
+        {
+            "rgb/train_100pct.jsonl": [{**UNPAIRED, "image": "V_1/only_train.jpeg"}],
+            "rgb/test.jsonl": [
+                {**UNPAIRED, "image": "V_1/only_test.jpeg"},
+                {**UNPAIRED, "image": "V_1/a_0.jpeg"},  # also paired
+            ],
+            "thermal/test.jsonl": [{**UNPAIRED, "camera": "thermal", "image": "I/x"}],
+            "unlabelled.jsonl": [
+                {
+                    "collection_id": "c1",
+                    "rgb_image": "V_1/a_1.jpeg",
+                    "thermal_image": "I_2/b_0.jpeg",
+                }
+            ],
+        },
+    )
+    pinned = {"V_1/only_test.jpeg": "ht"}
+
+    frames = fc.select_frames(
+        manifests / "all_pairs.jsonl", "rgb", pinned, folds=manifests / "folds"
+    )
+
+    assert [f.path for f in frames] == [
+        "V_1/a_0.jpeg",
+        "V_1/a_1.jpeg",
+        "V_1/only_test.jpeg",
+        "V_1/only_train.jpeg",
+    ]
+    assert frames[2].sha256 == "ht" and frames[3].sha256 is None
+    thermal = fc.select_frames(
+        manifests / "all_pairs.jsonl", "thermal", {}, folds=manifests / "folds"
+    )
+    assert [f.path for f in thermal] == ["I_2/b_0.jpeg", "I/x"]
+
+
+def test_a_resume_computes_only_the_frames_the_folds_add(tmp_path, dataset):
+    raw, manifests = dataset
+    run_features(tmp_path, dataset, session="s1")
+    cache = tmp_path / CACHE
+    before = fc.read_index(cache)
+    make_frames(raw, {"V_1/extra.jpeg": "rgb"})
+    write_fold(manifests, {"rgb/test.jsonl": [{**UNPAIRED, "image": "V_1/extra.jpeg"}]})
+
+    summary = run_features(tmp_path, dataset, session="s2")
+
+    after = fc.read_index(cache)
+    assert summary.computed == 1 and summary.skipped == 2
+    assert after["V_1/extra.jpeg"]["run"] == "s2"
+    assert {p: after[p] for p in before} == before
+    record = json.loads((cache / "runs/s2/run.json").read_text())
+    assert any("folds/siteday/rgb/test.jsonl" in str(p) for p in record["inputs"])
+
+
+def test_missing_frames_lists_what_the_manifests_reference_but_the_cache_lacks(
+    tmp_path, dataset
+):
+    raw, manifests = dataset
+    make_frames(raw, {"V_1/extra.jpeg": "rgb"})
+    write_fold(manifests, {"rgb/test.jsonl": [{**UNPAIRED, "image": "V_1/extra.jpeg"}]})
+    run_features(tmp_path, dataset, session="s1")  # selects the extra frame too
+    cache = tmp_path / CACHE
+
+    assert fc.missing_frames(cache, manifests) == {
+        "rgb": [],
+        "thermal": ["I_2/b_0.jpeg"],  # this run cached rgb only
+    }
+
+    index = cache / "index.jsonl"
+    kept = [ln for ln in index.read_text().splitlines() if "extra" not in ln]
+    index.write_text("\n".join(kept) + "\n")
+    assert fc.missing_frames(cache, manifests)["rgb"] == ["V_1/extra.jpeg"]
