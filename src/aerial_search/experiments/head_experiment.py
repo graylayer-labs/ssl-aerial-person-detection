@@ -149,6 +149,73 @@ def assign_targets(geometry: Geometry, boxes: ArrayLike) -> Targets:
     return Targets(heat, offset, size, lost)
 
 
+@dataclass(frozen=True)
+class Crowding:
+    """People in one image that one-peak-per-sub-cell decoding cannot all find.
+
+    `shared`: people dropped because another holds their sub-cell.
+    `adjacent`: people whose sub-cell touches (8-neighbourhood) another
+    occupied one. `unreachable`: the fewest of those a 3 x 3 peak test must
+    lose: in each group of touching sub-cells, the group size minus the most
+    sub-cells that can be kept with no two touching (exact up to 16 sub-cells
+    in a group, a greedy upper bound beyond).
+    """
+
+    shared: int
+    adjacent: int
+    unreachable: int
+
+
+EXACT_GROUP = 16
+
+
+def _most_apart(cells: list[tuple[int, int]]) -> int:
+    """The largest set of cells with no two touching (king's-move graph)."""
+
+    def touch(a: tuple[int, int], b: tuple[int, int]) -> bool:
+        return max(abs(a[0] - b[0]), abs(a[1] - b[1])) == 1
+
+    n = len(cells)
+    if n > EXACT_GROUP:  # greedy: a valid set, so possibly too small
+        chosen: list[tuple[int, int]] = []
+        for cell in sorted(cells):
+            if not any(touch(cell, c) for c in chosen):
+                chosen.append(cell)
+        return len(chosen)
+    clash = [
+        sum(1 << j for j in range(n) if touch(cells[i], cells[j])) for i in range(n)
+    ]
+    best = 0
+    for mask in range(1 << n):
+        if all(not (mask >> i & 1) or not (mask & clash[i]) for i in range(n)):
+            best = max(best, mask.bit_count())
+    return best
+
+
+def crowding(geometry: Geometry, boxes: ArrayLike) -> Crowding:
+    targets = assign_targets(geometry, boxes)
+    occupied = {(int(r), int(c)) for r, c in np.argwhere(targets.heat == 1)}
+    adjacent, unreachable, seen = 0, 0, set()
+    for start in sorted(occupied):
+        if start in seen:
+            continue
+        group, todo = [], [start]
+        seen.add(start)
+        while todo:
+            r, c = todo.pop()
+            group.append((r, c))
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    near = (r + dr, c + dc)
+                    if near in occupied and near not in seen:
+                        seen.add(near)
+                        todo.append(near)
+        if len(group) > 1:
+            adjacent += len(group)
+            unreachable += len(group) - _most_apart(group)
+    return Crowding(targets.lost, adjacent, unreachable)
+
+
 def as_arrays(targets: Targets) -> dict[str, np.ndarray]:
     return {
         "heat": targets.heat,
@@ -372,6 +439,18 @@ class Split:
     def __len__(self) -> int:
         return len(self.records)
 
+    def crowding(self) -> dict[str, int]:
+        """People, and those a one-peak decoder cannot all find, summed."""
+        per_image = [
+            crowding(g, b) for g, b in zip(self.geometry, self.boxes, strict=True)
+        ]
+        return {
+            "people": int(sum(len(b) for b in self.boxes)),
+            "shared": sum(c.shared for c in per_image),
+            "adjacent": sum(c.adjacent for c in per_image),
+            "unreachable": sum(c.unreachable for c in per_image),
+        }
+
 
 def load_split_features(
     cache_dir: Path,
@@ -587,9 +666,11 @@ def run_head(
         history["targets_lost_to_shared_subcells"] = {
             role: s.lost for role, s in splits.items()
         }
-        history["people"] = {
-            role: int(sum(len(b) for b in s.boxes)) for role, s in splits.items()
-        }
+        # people: labelled; shared: lost to a shared sub-cell; adjacent: next
+        # to another person's sub-cell; unreachable: of those, the fewest a
+        # 3x3 peak test must lose (see Crowding)
+        history["crowding"] = {role: s.crowding() for role, s in splits.items()}
+        history["test_predictions_tied"] = report.overall.n_predictions_tied
         (directory / "training.json").write_text(
             json.dumps(history, indent=2, allow_nan=True) + "\n"
         )
@@ -602,5 +683,7 @@ def run_head(
         "run": str(directory),
         "best_step": history["best_step"],
         "test": test,
+        "test_crowding": history["crowding"]["test"],
+        "test_predictions_tied": history["test_predictions_tied"],
         "by_size": {k: m.to_dict() for k, m in report.by_size.items()},
     }

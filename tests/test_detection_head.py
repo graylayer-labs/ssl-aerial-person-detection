@@ -91,6 +91,40 @@ def test_two_people_in_one_subcell_are_counted_as_lost():
     assert he.assign_targets(geometry, boxes).lost == 1
 
 
+def at_subcells(geometry: he.Geometry, cells: list[tuple[int, int]]) -> np.ndarray:
+    """10-px people centred in the given (row, column) sub-cells."""
+    xe, ye = geometry.x_edges, geometry.y_edges
+    return np.array(
+        [
+            box((xe[c] + xe[c + 1]) / 2, (ye[r] + ye[r + 1]) / 2, 10, 10)
+            for r, c in cells
+        ]
+    ).reshape(-1, 4)
+
+
+@pytest.mark.parametrize(
+    ("cells", "shared", "adjacent", "unreachable"),
+    [
+        ([(11, 21), (30, 60)], 0, 0, 0),  # far apart
+        ([(11, 21), (12, 22)], 0, 2, 1),  # diagonal neighbours: one peak survives
+        ([(11, 21), (11, 22), (11, 23)], 0, 3, 1),  # a row of three keeps the ends
+        ([(11, 21), (11, 23)], 0, 0, 0),  # one empty sub-cell between them
+        ([(11, 21), (11, 21), (11, 22)], 1, 2, 1),  # shared, then adjacent
+        ([(0, 0), (0, 1), (1, 0), (1, 1)], 0, 4, 3),  # a 2x2 block keeps one
+    ],
+)
+def test_crowding_counts_people_a_3x3_peak_test_cannot_all_keep(
+    cells, shared, adjacent, unreachable
+):
+    geometry = he.Geometry.from_entry(RGB, upsample=4)
+    crowding = he.crowding(geometry, at_subcells(geometry, cells))
+    assert (crowding.shared, crowding.adjacent, crowding.unreachable) == (
+        shared,
+        adjacent,
+        unreachable,
+    )
+
+
 # --- decoding and scoring --------------------------------------------------
 
 
@@ -372,6 +406,12 @@ def test_a_scratch_run_trains_selects_and_writes_its_report(tmp_path):
     assert metrics["overall"]["n_images"] == 3  # scored on the test site-day only
     assert summary["test"]["n_images"] == 3
     assert (directory / "head.pt").exists()
+    training = json.loads((directory / "training.json").read_text())
+    crowd = training["crowding"]["test"]
+    assert set(crowd) == {"people", "shared", "adjacent", "unreachable"}
+    assert crowd["people"] == 1  # frames 1 of 3 carry one person each
+    tied = metrics["overall"]["n_predictions_tied"]
+    assert training["test_predictions_tied"] == tied == summary["test_predictions_tied"]
 
 
 # --- the results table ---------------------------------------------------------
