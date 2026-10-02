@@ -14,6 +14,13 @@ each links to the issue or pull request that holds the detail.
   usage line, and reversible choices made alone and reported, not asked.
   ([#74](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/74))
 
+**Added**
+- `aerial-search cache-features` runs the frozen SigLIP 2 NaFlex backbone once
+  per image and caches pooled fp16 patch features, keyed by model, weight
+  checksum, token budget, pooling and dtype, and resumable with a verified
+  sample.
+  ([#65](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/65))
+
 **Found**
 - One forward pass of SigLIP 2 at about 512 pixels takes 92 to 126 ms per
   image on the laptop, so a pooled feature cache for the whole dataset is

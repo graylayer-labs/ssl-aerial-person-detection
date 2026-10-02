@@ -465,6 +465,16 @@ to its issue or PR. No version numbers.
   `"started"` means it crashed or is still running; `"failed"` records the
   error. Known limit: files ignored through `.git/info/exclude` are not seen.
 - Size runs for the laptop first. Aim for under 30 minutes.
+- **Feature cache.** `uv run aerial-search cache-features siglip2-base-naflex
+  --camera rgb|thermal [--part K/N] [--collection ID]` runs the frozen
+  backbone once per image and writes `outputs/features/<model>-<budget>tok/`,
+  read per image or fold with `aerial_search.experiments.feature_cache`
+  (`read_index`, `read_features`). Each session is a run under the cache's
+  `runs/` and goes through `start_run`; the cache's `cache.json` holds the
+  model, weight checksum, token budget, pooling and dtype, and a run with any
+  of them different is refused. Rerun a crashed session unchanged. Split a
+  camera with `--part` to stay under 30 minutes. See
+  `docs/forward-pass-cost.md`.
 - Any number quoted in a doc or README must be reproducible from a committed
   config. If a number cannot be traced, remove it.
 - Report negative results. State what was expected, what happened, and the
