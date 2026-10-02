@@ -473,7 +473,10 @@ to its issue or PR. No version numbers.
   `runs/` and goes through `start_run`; the cache's `cache.json` holds the
   model, weight checksum, token budget, pooling and dtype, and a run with any
   of them different is refused. Rerun a crashed session unchanged. Split a
-  camera with `--part` to stay under 30 minutes. See
+  camera with `--part` to stay under 30 minutes. `cache-features` also caches
+  frames only the fold manifests reference (no partner in the other camera);
+  `uv run aerial-search check-cache <cache-dir> data/manifests/wisard-full`
+  lists any frame the manifests reference that the cache lacks and exits 1. See
   `docs/forward-pass-cost.md`. **The feature cache is the one exception to
   "the run directory is the only place an experiment writes":** features go
   to the cache directory, which holds its sessions' run directories under
