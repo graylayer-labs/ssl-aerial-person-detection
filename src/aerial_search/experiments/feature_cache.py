@@ -108,6 +108,35 @@ class Summary:
     seconds: float = 0.0
 
 
+def fold_manifest_files(folds: Path) -> list[Path]:
+    """Every manifest under the folds directory, in a fixed order."""
+    return sorted(folds.rglob("*.jsonl")) if folds.is_dir() else []
+
+
+def fold_frames(folds: Path, camera: str) -> list[tuple[str, str]]:
+    """(path, collection) of each distinct image of one camera that any fold
+    manifest references, sorted by path.
+
+    A per-camera record names its image in `image` and carries `camera`; a
+    paired or unlabelled record names `rgb_image` and `thermal_image`.
+    """
+    pair_key = "rgb_image" if camera == "rgb" else "thermal_image"
+    found: dict[str, str] = {}
+    for file in fold_manifest_files(folds):
+        for line in file.read_text().splitlines():
+            if not line:
+                continue
+            record = json.loads(line)
+            if record.get("camera") == camera and "image" in record:
+                path = record["image"]
+            elif pair_key in record:
+                path = record[pair_key]
+            else:
+                continue
+            found.setdefault(path, record["collection_id"])
+    return sorted(found.items())
+
+
 def select_frames(
     manifest: Path,
     camera: str,
@@ -115,8 +144,11 @@ def select_frames(
     collections: Sequence[str] | None = None,
     limit: int | None = None,
     part: tuple[int, int] | None = None,
+    folds: Path | None = None,
 ) -> list[Frame]:
-    """The distinct images of one camera in a pair manifest, in manifest order."""
+    """The distinct images of one camera in a pair manifest, in manifest order,
+    then (with `folds`) the images only the fold manifests reference, by path.
+    """
     key = "rgb_image" if camera == "rgb" else "thermal_image"
     rows = [json.loads(line) for line in manifest.read_text().splitlines() if line]
     if collections:
@@ -131,6 +163,11 @@ def select_frames(
         frames.setdefault(
             path, Frame(path, camera, row["collection_id"], pinned.get(path))
         )
+    if folds is not None:
+        for path, collection in fold_frames(folds, camera):
+            if collections and collection not in collections:
+                continue
+            frames.setdefault(path, Frame(path, camera, collection, pinned.get(path)))
     selected = list(frames.values())
     files: dict[Path, str] = {}
     for frame in selected:
@@ -436,6 +473,19 @@ def build_cache(
     return summary
 
 
+def missing_frames(cache_dir: Path, manifests: Path) -> dict[str, list[str]]:
+    """Per camera, the images the manifests reference that the index lacks."""
+    pinned: Mapping[str, str] = {}
+    done = read_index(cache_dir)
+    missing: dict[str, list[str]] = {}
+    for camera in ("rgb", "thermal"):
+        frames = select_frames(
+            manifests / "all_pairs.jsonl", camera, pinned, folds=manifests / "folds"
+        )
+        missing[camera] = [f.path for f in frames if f.path not in done]
+    return missing
+
+
 SEED = 7  # picks which finished images a resumed run recomputes
 
 
@@ -500,7 +550,10 @@ def cache_features(
     with session_lock(cache_dir, session):
         manifest = manifests / "all_pairs.jsonl"
         pinned = {e.path: e.sha256 for e in checksums.committed_list()}
-        frames = select_frames(manifest, camera, pinned, collections, limit, part)
+        folds = manifests / "folds"
+        frames = select_frames(
+            manifest, camera, pinned, collections, limit, part, folds=folds
+        )
         config = {
             "settings": asdict(settings),
             "camera": camera,
@@ -522,7 +575,7 @@ def cache_features(
             scratch=scratch,
             argv=argv,
             repo=repo,
-            inputs=[manifest],
+            inputs=[manifest, *fold_manifest_files(folds)],
             manifests=manifests,
             data_root=data_root,
         )

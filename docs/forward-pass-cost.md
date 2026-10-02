@@ -242,5 +242,17 @@ for part in 1/2 2/2; do
 done
 ```
 
+Frames with no partner in the other camera (5 RGB and 3 thermal labelled
+frames) are cached after the paired ones, from the fold manifests. A cache
+built before this was added is completed by rerunning the same commands from a
+clean `main` (finished images are skipped, only the missing ones are
+computed), then checking:
+
+```bash
+uv run aerial-search cache-features siglip2-base-naflex --camera rgb
+uv run aerial-search cache-features siglip2-base-naflex --camera thermal
+uv run aerial-search check-cache outputs/features/siglip2-base-naflex-1024tok data/manifests/wisard-full
+```
+
 If a session crashes, run it again unchanged. Add `--scratch --limit 200` to
 try it without touching `outputs/features/`.

@@ -201,6 +201,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="run a frozen backbone once over one camera's images and save the "
         "patch features to outputs/features/",
     )
+    check_cache = subcommands.add_parser(
+        "check-cache",
+        help="list frames the manifests reference that a feature cache lacks; "
+        "exit 1 if any",
+    )
+    check_cache.add_argument("cache", type=Path, help="a features/<model>-<n>tok dir")
+    check_cache.add_argument("manifests", type=Path, help="output of prepare")
+
     cache.add_argument("model", choices=["siglip2-base-naflex"])
     cache.add_argument("--camera", choices=["rgb", "thermal"], required=True)
     cache.add_argument(
@@ -407,6 +415,18 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(1)
         for line in report.lines:
             print(f"OK   {line}")
+        return
+
+    if args.command == "check-cache":
+        from aerial_search.experiments import feature_cache
+
+        missing = feature_cache.missing_frames(args.cache, args.manifests)
+        for camera, paths in missing.items():
+            print(f"{camera}: {len(paths)} missing")
+            for path in paths:
+                print(f"  {path}")
+        if any(missing.values()):
+            raise SystemExit(1)
         return
 
     if args.command == "cache-features":
