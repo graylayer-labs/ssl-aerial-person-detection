@@ -103,12 +103,19 @@ class NaflexExtractor:
         self.token_budget = token_budget
         self.pooling = pooling
 
-    def __call__(self, image: Image.Image) -> np.ndarray:
-        inputs = self.processor(
+    def prepare(self, image: Image.Image) -> dict[str, torch.Tensor]:
+        """Resize and patchify on the CPU; safe to call from worker threads."""
+        return self.processor(
             images=[image.convert("RGB")],
             return_tensors="pt",
             max_num_patches=self.token_budget,
         )
+
+    def __call__(self, image: Image.Image) -> np.ndarray:
+        return self.extract(self.prepare(image))
+
+    def extract(self, inputs: dict[str, torch.Tensor]) -> np.ndarray:
+        """Run the vision tower on prepared inputs and pool the patch grid."""
         device = next(self.model.parameters()).device
         feed = {
             k: v.to(device, self.model.dtype if v.is_floating_point() else v.dtype)

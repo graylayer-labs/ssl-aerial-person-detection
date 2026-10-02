@@ -27,10 +27,12 @@ import json
 import os
 import random
 import time
+from collections import deque
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 from PIL import Image
@@ -45,9 +47,19 @@ class CacheError(Exception):
 
 
 class Extractor(Protocol):
-    def __call__(self, image: Image.Image) -> np.ndarray:
-        """An h x w x d float16 array of features for one image."""
+    """Two steps, so image decoding runs ahead of the device in worker threads."""
+
+    def prepare(self, image: Image.Image, /) -> Any:
+        """The CPU work for one image (thread-safe); input to `extract`."""
         ...
+
+    def extract(self, prepared: Any, /) -> np.ndarray:
+        """An h x w x d float16 array of features, from the device."""
+        ...
+
+
+WORKERS = 3  # images decoded and preprocessed ahead of the device
+LOOKAHEAD = 6
 
 
 @dataclass(frozen=True)
@@ -88,6 +100,7 @@ def select_frames(
     pinned: Mapping[str, str],
     collections: Sequence[str] | None = None,
     limit: int | None = None,
+    part: tuple[int, int] | None = None,
 ) -> list[Frame]:
     """The distinct images of one camera in a pair manifest, in manifest order."""
     key = "rgb_image" if camera == "rgb" else "thermal_image"
@@ -105,6 +118,12 @@ def select_frames(
             path, Frame(path, camera, row["collection_id"], pinned.get(path))
         )
     selected = list(frames.values())
+    if part:
+        k, n = part
+        if not 1 <= k <= n:
+            raise CacheError(f"part {k}/{n}: K must be from 1 to N")
+        size = -(-len(selected) // n)  # ceiling, so the parts cover everything
+        selected = selected[(k - 1) * size : k * size]
     return selected[:limit] if limit else selected
 
 
@@ -167,6 +186,34 @@ def _open(path: Path) -> Image.Image:
         return image.copy()
 
 
+def _prepare(extractor: Extractor, path: Path) -> Any:
+    return extractor.prepare(_open(path))
+
+
+def _prepared(extractor: Extractor, frames: Sequence[Frame], data_root: Path):
+    """Yield (frame, prepared) in order, with the CPU work done ahead."""
+    with ThreadPoolExecutor(WORKERS) as pool:
+        pending: deque = deque()
+        remaining = iter(frames)
+
+        def submit() -> None:
+            frame = next(remaining, None)
+            if frame is not None:
+                job = pool.submit(_prepare, extractor, data_root / frame.path)
+                pending.append((frame, job))
+
+        for _ in range(LOOKAHEAD):
+            submit()
+        try:
+            while pending:
+                frame, job = pending.popleft()
+                submit()
+                yield frame, job.result()
+        finally:
+            for _, job in pending:
+                job.cancel()
+
+
 def _verify(
     cache_dir: Path,
     done: list[Frame],
@@ -178,7 +225,8 @@ def _verify(
     sample = random.Random(seed).sample(done, min(count, len(done)))
     for frame in sample:
         stored = np.asarray(read_features(cache_dir, frame.path), dtype=np.float32)
-        fresh = np.asarray(extractor(_open(data_root / frame.path)), dtype=np.float32)
+        prepared = _prepare(extractor, data_root / frame.path)
+        fresh = np.asarray(extractor.extract(prepared), dtype=np.float32)
         if stored.shape != fresh.shape:
             raise CacheError(
                 f"{frame.path}: stored grid {stored.shape} but recomputed "
@@ -238,8 +286,8 @@ def build_cache(
         with index_path.open("ab") as handle:  # close off a torn last line
             handle.write(b"\n")
     with index_path.open("a") as handle:
-        for n, frame in enumerate(todo, 1):
-            array = extractor(_open(data_root / frame.path))
+        for n, (frame, prepared) in enumerate(_prepared(extractor, todo, data_root), 1):
+            array = extractor.extract(prepared)
             if array.dtype != np.dtype(settings.dtype):
                 raise CacheError(
                     f"{frame.path}: extractor gave {array.dtype}, the cache "
@@ -276,6 +324,7 @@ def cache_features(
     manifests: Path,
     collections: Sequence[str] | None,
     limit: int | None,
+    part: tuple[int, int] | None = None,
     token_budget: int,
     pooling: int,
     verify: int,
@@ -317,15 +366,21 @@ def cache_features(
 
     manifest = manifests / "all_pairs.jsonl"
     pinned = {e.path: e.sha256 for e in checksums.committed_list()}
-    frames = select_frames(manifest, camera, pinned, collections, limit)
+    frames = select_frames(manifest, camera, pinned, collections, limit, part)
     if session is None:
         stamp = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
-        session = "-".join([camera, *(collections or []), stamp])
+        pieces = [
+            camera,
+            *(collections or []),
+            *([f"part{part[0]}of{part[1]}"] if part else []),
+        ]
+        session = "-".join([*pieces, stamp])
     config = {
         "settings": asdict(settings),
         "camera": camera,
         "collections": list(collections or []),
         "limit": limit,
+        "part": list(part) if part else None,
         "verify": verify,
         "images": len(frames),
         "cache_dir": str(cache_dir),

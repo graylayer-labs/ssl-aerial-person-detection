@@ -26,10 +26,12 @@ class FakeExtractor:
     def __init__(self) -> None:
         self.calls = 0
 
-    def __call__(self, image: Image.Image) -> np.ndarray:
+    def prepare(self, image: Image.Image) -> float:  # runs in a worker thread
+        return float(np.asarray(image.convert("RGB"), dtype=np.float32).mean())
+
+    def extract(self, prepared: float) -> np.ndarray:
         self.calls += 1
-        mean = float(np.asarray(image.convert("RGB"), dtype=np.float32).mean())
-        return np.full((2, 3, 4), mean, dtype=np.float16)
+        return np.full((2, 3, 4), prepared, dtype=np.float16)
 
 
 def make_frames(root: Path, names: dict[str, str]) -> list[fc.Frame]:
@@ -159,6 +161,22 @@ def test_select_frames_by_camera_collection_and_limit(tmp_path):
     assert len(fc.select_frames(manifest, "rgb", pinned, limit=2)) == 2
     with pytest.raises(fc.CacheError, match="no-such"):
         fc.select_frames(manifest, "rgb", pinned, collections=["no-such"])
+
+
+def test_parts_split_the_frames_into_contiguous_chunks_that_cover_all(tmp_path):
+    rows = [
+        {"collection_id": "c", "rgb_image": f"V/{i}.jpeg", "thermal_image": "I/0.jpeg"}
+        for i in range(7)
+    ]
+    manifest = tmp_path / "all_pairs.jsonl"
+    manifest.write_text("\n".join(json.dumps(r) for r in rows))
+
+    parts = [fc.select_frames(manifest, "rgb", {}, part=(k, 3)) for k in (1, 2, 3)]
+
+    assert [len(p) for p in parts] == [3, 3, 1]
+    assert [f.path for p in parts for f in p] == [f"V/{i}.jpeg" for i in range(7)]
+    with pytest.raises(fc.CacheError, match="part"):
+        fc.select_frames(manifest, "rgb", {}, part=(4, 3))
 
 
 def test_naflex_extractor_returns_a_pooled_fp16_grid_for_either_camera():

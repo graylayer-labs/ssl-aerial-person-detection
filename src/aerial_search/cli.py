@@ -32,6 +32,18 @@ SEED = 7  # both experiments seed with 7; recorded in run.json
 VIEW = "paired"  # both experiments read the fold's paired-view manifests
 
 
+def _part(text: str) -> tuple[int, int]:
+    try:
+        k, n = (int(v) for v in text.split("/"))
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not K/N, for example 1/2"
+        ) from None
+    if not 1 <= k <= n:
+        raise argparse.ArgumentTypeError(f"{text!r}: K must be from 1 to N")
+    return k, n
+
+
 def _add_run_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--scratch",
@@ -197,6 +209,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="only this collection (repeat for several), to keep one session "
         "under 30 minutes; default: all",
     )
+    cache.add_argument(
+        "--part",
+        type=_part,
+        metavar="K/N",
+        help="the Kth of N contiguous chunks of the selected images, for example "
+        "1/2 and 2/2 to halve a session",
+    )
     cache.add_argument("--token-budget", type=int, default=1024)
     cache.add_argument(
         "--pooling", type=int, default=2, help="k of a k x k average pool; 1 is none"
@@ -359,6 +378,7 @@ def main(argv: list[str] | None = None) -> None:
                 manifests=args.manifests,
                 collections=args.collection,
                 limit=args.limit,
+                part=args.part,
                 token_budget=args.token_budget,
                 pooling=args.pooling,
                 verify=args.verify,
