@@ -50,7 +50,7 @@ def _scores(metrics: dict[str, Any]) -> dict[str, float]:
 def collect(root: Path) -> list[dict[str, Any]]:
     """Every run under `root`, with its test scores. Raises `TableError` on a
     scratch or unfinished run, or a completed run without its report."""
-    runs = []
+    runs: list[dict[str, Any]] = []
     for path in sorted(root.rglob("run.json")):
         record = json.loads(path.read_text())
         name = str(path.parent.relative_to(root))
