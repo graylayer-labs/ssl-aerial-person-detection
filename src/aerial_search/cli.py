@@ -305,6 +305,12 @@ def build_parser() -> argparse.ArgumentParser:
     head.add_argument("--learning-rate", type=float, default=defaults.learning_rate)
     head.add_argument("--weight-decay", type=float, default=defaults.weight_decay)
     head.add_argument("--device", help="default: mps if available, else cpu")
+    head.add_argument(
+        "--input-handling",
+        choices=["replicate", "equalise"],
+        help="optional check that --cache was made with this thermal input "
+        "handling (#68); the arm is read from the cache and recorded in run.json",
+    )
     _add_fold_flag(head)
     _add_run_flags(head)
 
@@ -490,6 +496,7 @@ def main(argv: list[str] | None = None) -> None:
                 scratch=args.scratch,
                 run_name=args.run_name,
                 device=torch.device(args.device) if args.device else get_device(),
+                input_handling=args.input_handling,
             )
         except (
             feature_cache.CacheError,

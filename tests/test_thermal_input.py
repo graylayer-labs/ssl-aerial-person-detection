@@ -111,7 +111,9 @@ def test_the_stem_trains_through_a_frozen_backbone_and_the_backbone_does_not_mov
     optimiser = torch.optim.AdamW(stem.parameters(), lr=1e-2)
     optimiser.step()
     assert not torch.equal(backbone(prepared), grid)  # the stem moved
-    assert all(torch.equal(a, b) for a, b in zip(before, model.parameters()))
+    assert all(
+        torch.equal(a, b) for a, b in zip(before, model.parameters(), strict=True)
+    )
 
 
 def test_a_fresh_stem_backbone_matches_the_extractor_features():

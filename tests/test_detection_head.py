@@ -283,11 +283,18 @@ def test_only_frames_the_manifest_lists_as_labelled_become_negatives(tmp_path):
 # --- the cache a run reads ---------------------------------------------------
 
 
-def fake_cache(tmp_path: Path, records: list[dict], scratch: bool = False) -> Path:
+def fake_cache(
+    tmp_path: Path,
+    records: list[dict],
+    scratch: bool = False,
+    settings: dict | None = None,
+) -> Path:
     top = "scratch-features" if scratch else "features"
     cache = tmp_path / "outputs" / top / "m-1024tok"
     (cache / "runs" / "s1").mkdir(parents=True)
-    (cache / "cache.json").write_text(json.dumps({"settings": {"model": "m"}}))
+    (cache / "cache.json").write_text(
+        json.dumps({"settings": {"model": "m", **(settings or {})}})
+    )
     (cache / "runs" / "s1" / "run.json").write_text(
         json.dumps({"scratch": scratch, "status": "completed"})
     )
@@ -361,7 +368,8 @@ def test_a_cache_entry_whose_image_size_disagrees_is_refused(tmp_path):
 # --- one run, end to end, on a fake cache -----------------------------------
 
 
-def test_a_scratch_run_trains_selects_and_writes_its_report(tmp_path):
+def scratch_setup(tmp_path: Path, settings: dict | None = None) -> tuple[Path, str]:
+    """Fold manifests and a fake scratch cache for a tiny end-to-end run."""
     fold, other = "220109_Baker", "210417_MtErie"
     rng = np.random.default_rng(1)
 
@@ -378,9 +386,14 @@ def test_a_scratch_run_trains_selects_and_writes_its_report(tmp_path):
     write(view / "train_100pct.jsonl", train)
     write(view / "validation.jsonl", validation)
     write(view / "test.jsonl", test)
-    cache = fake_cache(tmp_path, train + validation + test, scratch=True)
+    cache = fake_cache(
+        tmp_path, train + validation + test, scratch=True, settings=settings
+    )
+    return cache, fold
 
-    summary = he.run_head(
+
+def tiny_run(tmp_path: Path, cache: Path, fold: str, **kw):
+    return he.run_head(
         cache_dir=cache,
         manifests=tmp_path / "manifests",
         data_root=tmp_path / "raw",
@@ -394,7 +407,14 @@ def test_a_scratch_run_trains_selects_and_writes_its_report(tmp_path):
         device=torch.device("cpu"),
         repo=tmp_path / "repo",
         argv=["aerial-search", "train-head"],
+        **kw,
     )
+
+
+def test_a_scratch_run_trains_selects_and_writes_its_report(tmp_path):
+    cache, fold = scratch_setup(tmp_path)
+
+    summary = tiny_run(tmp_path, cache, fold)
 
     directory = tmp_path / "repo" / "outputs" / "scratch-head-test"
     record = json.loads((directory / "run.json").read_text())
@@ -413,6 +433,35 @@ def test_a_scratch_run_trains_selects_and_writes_its_report(tmp_path):
     assert crowd["people"] == 1  # frames 1 of 3 carry one person each
     tied = metrics["overall"]["n_predictions_tied"]
     assert training["test_predictions_tied"] == tied == summary["test_predictions_tied"]
+
+
+def run_record(tmp_path: Path) -> dict:
+    path = tmp_path / "repo" / "outputs" / "scratch-head-test" / "run.json"
+    return json.loads(path.read_text())
+
+
+def test_a_run_records_which_input_arm_its_features_came_from(tmp_path):
+    cache, fold = scratch_setup(tmp_path, {"input_handling": "equalise"})
+
+    tiny_run(tmp_path, cache, fold, input_handling="equalise")
+
+    assert run_record(tmp_path)["config"]["input_handling"] == "equalise"
+
+
+def test_a_cache_without_the_field_is_arm_replicate(tmp_path):
+    cache, fold = scratch_setup(tmp_path)  # as the #66 cache is
+
+    tiny_run(tmp_path, cache, fold)
+
+    assert run_record(tmp_path)["config"]["input_handling"] == "replicate"
+
+
+def test_asking_for_an_arm_the_cache_was_not_made_with_is_refused(tmp_path):
+    cache, fold = scratch_setup(tmp_path, {"input_handling": "equalise"})
+
+    with pytest.raises(CacheError, match="equalise"):
+        tiny_run(tmp_path, cache, fold, input_handling="replicate")
+    assert not (tmp_path / "repo" / "outputs" / "scratch-head-test").exists()
 
 
 # --- the results table ---------------------------------------------------------

@@ -37,6 +37,7 @@ from aerial_search.experiments.feature_cache import (
     read_index,
 )
 from aerial_search.models.head import CentreHead, centre_loss
+from aerial_search.models.thermal_input import DEFAULT_ARM
 
 LOG_SIZE_RANGE = (-8.0, 4.0)  # clamp before exp: 0.0003 to 55 cells
 
@@ -403,6 +404,11 @@ def check_cache(
     return CacheView(entries, sessions, settings, missing)
 
 
+def cache_arm(cache_json: Mapping[str, Any]) -> str:
+    """How the cache's frames reached the backbone; absent means replicate."""
+    return str(cache_json.get("settings", {}).get("input_handling", DEFAULT_ARM))
+
+
 # --- data, training, scoring ---------------------------------------------------
 
 
@@ -586,8 +592,14 @@ def run_head(
     device: torch.device,
     repo: Path | None = None,
     argv: list[str] | None = None,
+    input_handling: str | None = None,
 ) -> dict[str, Any]:
     """One run: train at `percent`, select on validation, score on test.
+
+    The input arm (#68) is the one the cache was made with
+    (`cache.json` settings `input_handling`; a cache without the field is
+    "replicate") and is recorded in `run.json`. `input_handling`, if given,
+    must equal it; a mismatch is refused.
 
     Writes `run.json`, `detection_metrics.json` (test), `training.json`
     (loss, validation scores, chosen step) and `head.pt` into the run
@@ -611,6 +623,12 @@ def run_head(
         scratch=scratch,
         pinned=pinned,
     )
+    arm = cache_arm(cache.settings)
+    if input_handling is not None and input_handling != arm:
+        raise CacheError(
+            f"{cache_dir} holds {arm!r} features, not {input_handling!r}; use the "
+            "cache made with that input handling"
+        )
     if cache.missing:  # a scratch run only; check_cache refuses a normal one
         print(f"scratch: {len(cache.missing)} images not in the cache, left out")
         absent = set(cache.missing)
@@ -622,6 +640,7 @@ def run_head(
         "camera": camera,
         "fold": fold,
         "percent": percent,
+        "input_handling": arm,
         "recipe": asdict(recipe),
         "cache_dir": str(cache_dir),
         "cache": cache.settings,
