@@ -71,14 +71,15 @@ SPECS = {
 }
 
 
-def load(spec: Spec, device: str):
+def load(spec: Spec, device: str) -> torch.nn.Module:
     if spec.kind == "siglip":
         model = SiglipVisionModel.from_pretrained(spec.repo, dtype=torch.float16)
     elif spec.kind == "naflex":
         model = Siglip2VisionModel.from_pretrained(spec.repo, dtype=torch.float16)
     else:
         model = AutoModel.from_pretrained(spec.repo, dtype=torch.float16)
-    return model.to(device).eval()
+    module: torch.nn.Module = model
+    return module.to(device).eval()
 
 
 def weight_checksums(repo: str) -> dict[str, str]:
@@ -110,7 +111,7 @@ def sample_frames(data: Path, manifest: Path, camera: str, n: int, seed: int):
 
 
 def to_square_tensor(image: Image.Image, side: int, mean, std) -> torch.Tensor:
-    resized = image.convert("RGB").resize((side, side), Image.BILINEAR)
+    resized = image.convert("RGB").resize((side, side), Image.Resampling.BILINEAR)
     array = np.asarray(resized, dtype=np.float32) / 255.0
     array = (array - np.asarray(mean, dtype=np.float32)) / np.asarray(
         std, dtype=np.float32
