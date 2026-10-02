@@ -13,10 +13,12 @@ from aerial_search.models.backbone import Extraction, NaflexExtractor, pool2
 SETTINGS = fc.CacheSettings(
     model="fake",
     repo="fake/fake",
+    revision="rev1",
     weights_sha256={"model.safetensors": "aa"},
     token_budget=64,
     pooling=2,
     dtype="float16",
+    preprocessing_version=1,
 )
 
 
@@ -149,6 +151,8 @@ def test_a_crash_between_file_and_index_is_recomputed(tmp_path, frames):
         {"dtype": "float32"},
         {"weights_sha256": {"model.safetensors": "bb"}},
         {"repo": "other/model"},
+        {"revision": "rev2"},
+        {"preprocessing_version": 2},
     ],
 )
 def test_a_cache_refuses_settings_that_differ(tmp_path, frames, change):
@@ -333,7 +337,7 @@ def run_features(
     pooling=2,
     limit=None,
     scratch=True,
-    weights=lambda repo: {"model.safetensors": "aa"},
+    weights=lambda repo, revision: {"model.safetensors": "aa"},
 ):
     raw, manifests = dataset
     (tmp_path / "repo").mkdir(exist_ok=True)
@@ -377,7 +381,9 @@ def test_a_run_with_other_settings_refuses_before_starting_a_run(tmp_path, datas
         run_features(tmp_path, dataset, session="s2", pooling=1)
     with pytest.raises(fc.CacheError, match="different settings"):
         other = {"model.safetensors": "zz"}
-        run_features(tmp_path, dataset, session="s3", weights=lambda repo: other)
+        run_features(
+            tmp_path, dataset, session="s3", weights=lambda repo, revision: other
+        )
     assert sorted(p.name for p in (cache / "runs").iterdir()) == ["s1"]
 
 
@@ -385,3 +391,76 @@ def test_a_limit_needs_a_scratch_run(tmp_path, dataset):
     with pytest.raises(fc.CacheError, match="scratch"):
         run_features(tmp_path, dataset, limit=1, scratch=False)
     assert run_features(tmp_path, dataset, limit=1).computed == 1
+
+
+def test_a_changed_transformers_version_only_warns(tmp_path, frames, monkeypatch):
+    build(tmp_path, frames, FakeExtractor())
+    monkeypatch.setattr(fc, "_transformers_version", lambda: "9.9.9")
+
+    with pytest.warns(UserWarning, match="transformers"):
+        build(tmp_path, frames, FakeExtractor(), verify=0)
+    record = json.loads((tmp_path / "cache" / "cache.json").read_text())
+    assert record["environment"]["transformers"] != "9.9.9"  # the first one stays
+
+
+def test_a_finished_image_whose_source_hash_changed_is_recomputed(tmp_path, frames):
+    build(tmp_path, frames, FakeExtractor())
+    changed = [
+        fc.Frame(f.path, f.camera, f.collection_id, f.sha256 + "x") for f in frames[:1]
+    ]
+    again = FakeExtractor()
+
+    summary = build(tmp_path, [*changed, *frames[1:]], again, verify=0)
+
+    assert (summary.stale, summary.computed, summary.skipped) == (1, 1, 2)
+    assert again.calls == 1
+    assert fc.read_index(tmp_path / "cache")[frames[0].path]["sha256"] == "sha0x"
+
+
+def test_resume_reports_the_measured_drift_and_refuses_beyond_the_limit(
+    tmp_path, frames
+):
+    build(tmp_path, frames, FakeExtractor())
+    cache = tmp_path / "cache"
+    same = build(tmp_path, frames, FakeExtractor(), verify=3)
+    assert same.max_drift == 0.0
+
+    path = cache / "features" / "VIS_1" / "a_0.npy"
+    stored = np.load(path)
+    noisy = stored.copy()
+    noisy[0, 0, 0] = np.nextafter(noisy[0, 0, 0], np.float16(1000))  # one step
+    np.save(path, noisy)
+    small = build(tmp_path, frames, FakeExtractor(), verify=3)
+    assert 0 < small.max_drift < fc.VERIFY_TOLERANCE
+
+    np.save(path, stored * np.float16(1.05))  # a 5% change is not noise
+    with pytest.raises(fc.CacheError, match="a_0"):
+        build(tmp_path, frames, FakeExtractor(), verify=3)
+
+
+def test_two_paths_that_map_to_one_feature_file_are_refused(tmp_path):
+    rows = [
+        {"collection_id": "c", "rgb_image": "V/1.jpeg", "thermal_image": "I/1.jpeg"},
+        {"collection_id": "c", "rgb_image": "V/1.jpg", "thermal_image": "I/2.jpeg"},
+    ]
+    manifest = tmp_path / "all_pairs.jsonl"
+    manifest.write_text("\n".join(json.dumps(r) for r in rows))
+
+    with pytest.raises(fc.CacheError, match="same feature file"):
+        fc.select_frames(manifest, "rgb", {})
+
+
+def test_a_session_lock_blocks_a_second_session_and_is_released(tmp_path, dataset):
+    cache = tmp_path / "repo/outputs/scratch-features/siglip2-base-naflex-1024tok"
+    (tmp_path / "repo").mkdir()
+    cache.mkdir(parents=True)
+    (cache / "session.lock").write_text("pid 1 session other")
+
+    with pytest.raises(fc.CacheError, match="session.lock"):
+        run_features(tmp_path, dataset)
+    assert not (cache / "runs").exists()  # refused before a run started
+
+    (cache / "session.lock").unlink()
+    run_features(tmp_path, dataset)
+    assert not (cache / "session.lock").exists()
+    run_features(tmp_path, dataset, session="s2")  # released, so a second works

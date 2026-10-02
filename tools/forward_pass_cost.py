@@ -166,12 +166,16 @@ def main() -> None:
     spec = SPECS[args.model]
     paths = sample_frames(args.data, args.manifest, args.camera, args.n, args.seed)
     print(json.dumps({"model": args.model, "repo": spec.repo, "args": str(vars(args))}))
-    print(json.dumps({"sha256": weight_checksums(spec.repo)}), flush=True)
+    print(
+        json.dumps({"sha256": weight_checksums(spec.repo, spec.revision)}), flush=True
+    )
     model = load(spec, args.device)
     print(json.dumps({"torch": torch.__version__, "device": args.device}))
 
     if spec.kind == "naflex":
-        processor = AutoImageProcessor.from_pretrained(spec.repo)
+        processor = AutoImageProcessor.from_pretrained(
+            spec.repo, revision=spec.revision
+        )
         for label, budget in spec.budgets:
             t0 = time.perf_counter()
             inputs = []

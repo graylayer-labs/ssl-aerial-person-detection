@@ -28,46 +28,79 @@ class Spec:
     tile_px: int  # side of one forward pass for the fixed-resolution models
     # (label, patch budget) for naflex, one forward pass per image
     budgets: tuple[tuple[str, int], ...] = ()
+    # hub commit of the weights; loading and checksumming both use it, so a
+    # moved branch on the hub cannot change what a cache was made with
+    revision: str = "main"
 
 
 SPECS = {
-    "siglip2-base-512": Spec("google/siglip2-base-patch16-512", "siglip", 16, 512),
-    "siglip2-large-512": Spec("google/siglip2-large-patch16-512", "siglip", 16, 512),
+    "siglip2-base-512": Spec(
+        "google/siglip2-base-patch16-512",
+        "siglip",
+        16,
+        512,
+        revision="a89f5c5093f902bf39d3cd4d81d2c09867f0724b",
+    ),
+    "siglip2-large-512": Spec(
+        "google/siglip2-large-patch16-512",
+        "siglip",
+        16,
+        512,
+        revision="49488218e80259885f3be61d7a9455faf833b7a8",
+    ),
     "siglip2-base-naflex": Spec(
         "google/siglip2-base-patch16-naflex",
         "naflex",
         16,
         0,
         (("~512", 1024), ("~1024", 4096)),
+        revision="b53b807d3a2d5e2b3911292f2d69e5341cdc064c",
     ),
-    "dinov2-base": Spec("facebook/dinov2-base", "dinov2", 14, 518),
+    "dinov2-base": Spec(
+        "facebook/dinov2-base",
+        "dinov2",
+        14,
+        518,
+        revision="f9e44c814b77203eaa57a6bdbbd535f21ede1415",
+    ),
 }
 
 
 def load(spec: Spec, device: str) -> torch.nn.Module:
     """The vision tower in half precision on `device`, in eval mode."""
     if spec.kind == "siglip":
-        model = SiglipVisionModel.from_pretrained(spec.repo, dtype=torch.float16)
+        model = SiglipVisionModel.from_pretrained(
+            spec.repo, dtype=torch.float16, revision=spec.revision
+        )
     elif spec.kind == "naflex":
-        model = Siglip2VisionModel.from_pretrained(spec.repo, dtype=torch.float16)
+        model = Siglip2VisionModel.from_pretrained(
+            spec.repo, dtype=torch.float16, revision=spec.revision
+        )
     else:
-        model = AutoModel.from_pretrained(spec.repo, dtype=torch.float16)
+        model = AutoModel.from_pretrained(
+            spec.repo, dtype=torch.float16, revision=spec.revision
+        )
     module: torch.nn.Module = model
     return module.to(device).eval()
 
 
-def weight_checksums(repo: str) -> dict[str, str]:
-    """SHA-256 of each `.safetensors` file of `repo`, by file name."""
+def weight_checksums(repo: str, revision: str = "main") -> dict[str, str]:
+    """SHA-256 of each `.safetensors` file of `repo` at `revision`, by name."""
     from huggingface_hub import snapshot_download
 
     try:  # the cache first: a stalled hub connection must not hang a run
         root = Path(
             snapshot_download(
-                repo, allow_patterns=["*.safetensors"], local_files_only=True
+                repo,
+                revision=revision,
+                allow_patterns=["*.safetensors"],
+                local_files_only=True,
             )
         )
     except Exception:
-        root = Path(snapshot_download(repo, allow_patterns=["*.safetensors"]))
+        root = Path(
+            snapshot_download(repo, revision=revision, allow_patterns=["*.safetensors"])
+        )
     out = {}
     for path in sorted(root.glob("*.safetensors")):
         digest = hashlib.sha256()
