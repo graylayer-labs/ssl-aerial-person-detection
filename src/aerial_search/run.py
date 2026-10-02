@@ -313,6 +313,21 @@ def _verify_data(
     return data, provenance, datetime.now(UTC).isoformat()
 
 
+def outputs_dir(*, scratch: bool, repo: Path | None = None) -> Path:
+    """The `outputs/` directory `start_run` writes under, without starting a run.
+
+    For a command that must check something in its output location before it
+    creates the run. Refuses outside a git work tree unless `scratch`.
+    """
+    start = (repo or _code_location()).resolve()
+    try:
+        return _repo_root(start) / "outputs"
+    except GitError:
+        if not scratch:
+            raise
+        return (start if repo else Path.cwd().resolve()) / "outputs"
+
+
 def code_state(*, scratch: bool, repo: Path | None = None) -> dict[str, Any]:
     """Commit and cleanliness of the running code, refusing like `start_run`.
 

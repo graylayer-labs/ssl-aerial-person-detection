@@ -25,82 +25,20 @@ aspect ratio and the grid is whatever fits the patch budget.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import random
 import resource
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from PIL import Image
-from transformers import (
-    AutoImageProcessor,
-    AutoModel,
-    Siglip2VisionModel,
-    SiglipVisionModel,
-)
+from transformers import AutoImageProcessor
+
+from aerial_search.models.backbone import SPECS, Spec, load, pool2, weight_checksums
 
 TILE = 2  # a 1024 px frame is a 2x2 grid of 512 px tiles
-
-
-@dataclass(frozen=True)
-class Spec:
-    repo: str
-    kind: str  # "siglip", "naflex" or "dinov2"
-    patch: int
-    tile_px: int  # side of one forward pass for the fixed-resolution models
-    # (label, patch budget) for naflex, one forward pass per image
-    budgets: tuple[tuple[str, int], ...] = ()
-
-
-SPECS = {
-    "siglip2-base-512": Spec("google/siglip2-base-patch16-512", "siglip", 16, 512),
-    "siglip2-large-512": Spec("google/siglip2-large-patch16-512", "siglip", 16, 512),
-    "siglip2-base-naflex": Spec(
-        "google/siglip2-base-patch16-naflex",
-        "naflex",
-        16,
-        0,
-        (("~512", 1024), ("~1024", 4096)),
-    ),
-    "dinov2-base": Spec("facebook/dinov2-base", "dinov2", 14, 518),
-}
-
-
-def load(spec: Spec, device: str) -> torch.nn.Module:
-    if spec.kind == "siglip":
-        model = SiglipVisionModel.from_pretrained(spec.repo, dtype=torch.float16)
-    elif spec.kind == "naflex":
-        model = Siglip2VisionModel.from_pretrained(spec.repo, dtype=torch.float16)
-    else:
-        model = AutoModel.from_pretrained(spec.repo, dtype=torch.float16)
-    module: torch.nn.Module = model
-    return module.to(device).eval()
-
-
-def weight_checksums(repo: str) -> dict[str, str]:
-    from huggingface_hub import snapshot_download
-
-    try:  # the cache first: a stalled hub connection must not hang a measurement
-        root = Path(
-            snapshot_download(
-                repo, allow_patterns=["*.safetensors"], local_files_only=True
-            )
-        )
-    except Exception:
-        root = Path(snapshot_download(repo, allow_patterns=["*.safetensors"]))
-    out = {}
-    for path in sorted(root.glob("*.safetensors")):
-        digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            while block := handle.read(1 << 24):
-                digest.update(block)
-        out[path.name] = digest.hexdigest()
-    return out
 
 
 def sample_frames(data: Path, manifest: Path, camera: str, n: int, seed: int):
@@ -131,11 +69,6 @@ def stitch(tokens: torch.Tensor, grid: int) -> torch.Tensor:
     d = tokens.shape[-1]
     x = tokens.reshape(TILE, TILE, grid, grid, d).permute(0, 2, 1, 3, 4)
     return x.reshape(TILE * grid, TILE * grid, d)
-
-
-def pool2(grid_features: torch.Tensor) -> torch.Tensor:
-    x = grid_features.permute(2, 0, 1).unsqueeze(0)
-    return F.avg_pool2d(x, 2).squeeze(0).permute(1, 2, 0)
 
 
 def patch_tokens(spec: Spec, model, pixels: torch.Tensor) -> torch.Tensor:
