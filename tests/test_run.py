@@ -502,3 +502,17 @@ def test_code_state_refuses_a_dirty_tree_unless_scratch(repo: Path) -> None:
         code_state(scratch=False, repo=repo)
     state = code_state(scratch=True, repo=repo)
     assert state["dirty"] and state["commit"]
+
+
+def test_outputs_dir_is_where_start_run_writes(repo: Path) -> None:
+    commit(repo, "a")
+    assert run_module.outputs_dir(scratch=False, repo=repo) == repo / "outputs"
+    out = run(repo, name="features/m/runs/r1", scratch=True)
+    assert out == repo / "outputs" / "scratch-features" / "m" / "runs" / "r1"
+    assert run_module.outputs_dir(scratch=True, repo=repo) == out.parents[3]
+
+
+def test_outputs_dir_refuses_a_normal_run_outside_git(tmp_path: Path) -> None:
+    with pytest.raises(ProvenanceError, match="git"):
+        run_module.outputs_dir(scratch=False, repo=tmp_path)
+    assert run_module.outputs_dir(scratch=True, repo=tmp_path) == tmp_path / "outputs"

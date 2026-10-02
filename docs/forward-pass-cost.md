@@ -172,3 +172,75 @@ study.
 person. That is the first question for the detection head (#66), and the
 reason the cache keeps the unpooled option available at 46 GB if the disk
 allows it later.
+
+## Building the first cache (#65)
+
+`aerial-search cache-features` implements the recommendation. Code:
+`src/aerial_search/experiments/feature_cache.py` (the cache) and
+`src/aerial_search/models/backbone.py` (loading, weight checksums, the NaFlex
+extractor, shared with `tools/forward_pass_cost.py`).
+
+- **Layout.** `outputs/features/siglip2-base-naflex-1024tok/` holds
+  `cache.json` (the settings that must match: model, hub revision, weight
+  SHA-256, token budget, pooling, dtype, preprocessing version; and the
+  `transformers` version, which only warns), `index.jsonl` (one line per
+  image: camera, `image_size`, `resized_size`, `patch_grid`, `pooling`,
+  `grid`, source SHA-256 from the pinned list, run, commit) and
+  `features/<clip dir>/<stem>.npy`, one
+  fp16 `h x w x 768` array per image, readable with `np.load(mmap_mode="r")`.
+  One file per image over one file per clip: each write is one atomic rename,
+  a crash loses only the image in flight, and a fold reads only its files.
+  About 30,000 files of 0.35 to 0.37 MB. Read with `read_index` and
+  `read_features`.
+- **Sessions.** Each session is a run under the cache,
+  `.../runs/<camera>-<timestamp>/run.json`, with the settings, weight
+  checksums, the manifest's SHA-256 and the data verification. A cache with
+  other settings is refused before a run starts. One session at a time: a
+  session holds `session.lock` in the cache directory and a second refuses
+  while it exists. After a killed session, delete the lock with the `rm`
+  command the error prints.
+- **Resume.** Run the same command again. Finished images are skipped and 8
+  of them (`--verify`) are recomputed and compared; a relative RMS difference
+  above 1e-3 or a changed geometry stops the run. The worst measured drift is
+  in the session's `summary.json`. A finished image whose pinned source hash
+  differs from the one in the index is recomputed and counted as `stale`.
+- **Geometry: which pixels a cell covers.** The processor stretches the source
+  image (`iw` x `ih`) to a whole number of 16-pixel patches, `resized_size`,
+  with a `patch_grid` of `ph` rows and `pw` columns, so the grid covers the
+  whole image and one patch is `iw / pw` by `ih / ph` source pixels (not
+  square: x and y scales differ). Pooling by `k` (2) gives a
+  `ceil(ph / k)` x `ceil(pw / k)` grid; a cell on an odd edge averages the
+  real patches only, never padding. Cell (i, j) covers source pixels
+
+  ```
+  x0 = iw * (k*j) / pw        x1 = iw * min(k*(j+1), pw) / pw
+  y0 = ih * (k*i) / ph        y1 = ih * min(k*(i+1), ph) / ph
+  ```
+
+  so the last row or column of an odd grid is a half-size cell, and the boxes
+  tile the image exactly. `feature_cache.cell_boxes(entry)` returns them as an
+  `(h, w, 4)` array of `(x0, y0, x1, y1)`; use it rather than re-deriving.
+  Thermal at a 1,024-token budget is a 28 x 35 patch grid, pooled to 14 x 18.
+- **Speed.** Device-bound at about 121 ms per image (extract only, mains, 40
+  frames). Decoding the 3840x2160 RGB frames (57 ms) and patchifying (23 ms)
+  run ahead in threads. Scratch runs gave 6.0 to 7.4 images/s for both
+  cameras, so one camera (14,834 images) is about 34 minutes, over the
+  30-minute rule. Hence `--part K/N`: two parts per camera.
+- Thermal JPEGs are stored as three-channel RGB already, so the replication
+  is a no-op for them; a one-channel image is converted to three identical
+  channels, which a test covers.
+
+Real build, after merge, from a clean `main` with `git fetch` done, on mains
+power, one at a time (each about 17 minutes):
+
+```bash
+for part in 1/2 2/2; do
+  caffeinate -dims uv run aerial-search cache-features siglip2-base-naflex --camera rgb --part ${part}
+done
+for part in 1/2 2/2; do
+  caffeinate -dims uv run aerial-search cache-features siglip2-base-naflex --camera thermal --part ${part}
+done
+```
+
+If a session crashes, run it again unchanged. Add `--scratch --limit 200` to
+try it without touching `outputs/features/`.

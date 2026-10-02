@@ -2,6 +2,7 @@
 
 One line each, newest first. Format: `YYYY-MM-DD · chose X over Y · reason`.
 
+- 2026-10-02 · chose one feature file per image, with the model, weight checksum, token budget, pooling and dtype in a cache record, over one file per clip · each write is one atomic rename so a crash loses one image, a fold reads only its files, and a run with other settings is refused. See #65.
 - 2026-10-01 · chose to sign every commit with a passphrase-less project key over signing only on `main` · the owner asked for branch commits signed too, and agents cannot type a passphrase. See #27.
 - 2026-10-01 · chose SigLIP 2 (Google) as the starting backbone over the DINO family (Meta) · the owner prefers a non-Meta model for a public project; SigLIP 2 is Apache-2.0 and ungated. EVA-02 second, DINOv2 as the comparison. See #5.
 - 2026-10-01 · chose to delete the August exploration notebook over re-running it · it quoted figures from a wrong pairing, and the guide and review notes now cover what it showed.
