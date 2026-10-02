@@ -19,8 +19,9 @@ conversation.
 5. Update the issue's status on the board if it changed.
 6. If the session surfaced follow-up work, create issues for it from the task
    template and add them to the board.
-7. Tell the owner, in the conversation: what changed, what was decided, and
-   what needs them. Open anything they need to look at.
+7. Tell the owner with an update in the form under "Keeping the owner
+   informed" in `CLAUDE.md`: what finished, the tokens it cost, and the one
+   thing that needs them, if any. Open anything they need to look at.
 
 ## Comment template
 

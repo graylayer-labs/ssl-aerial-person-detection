@@ -43,6 +43,10 @@ Agent sessions end and context is lost. The project board is the memory.
    the issue, not only in the conversation.
 4. **End** with `/handoff`, even if the task is unfinished. The next agent
    should be able to continue from the issue alone.
+5. **Keep the lead's session short.** Its whole history is sent again on
+   every turn, so a session left open for days costs more with each message.
+   The lead ends with `/handoff` and starts a new session with `/pickup` when
+   an epic closes, and at least once a day.
 
 If there is no issue for the work, create one from the task template. Every
 PR closes an issue; a PR that would only reference one gets its own issue
@@ -180,18 +184,60 @@ Do everything else first. Then add the `needs-owner` label, leave the issue
 In Progress, open what they need to see, and ask them in the conversation.
 Do not close the issue or tick that criterion yourself.
 
-## Showing the owner
+## Keeping the owner informed
 
-The owner sees only what is put in front of them. They do not browse the repo
-or the board unprompted.
+The lead runs the work and keeps the owner aligned; the owner steers when
+needed. The owner reads only the end of each message and sees only what is
+put in front of them. They do not browse the repo or the board unprompted.
+
+### When to send an update
+
+- When something merges or closes, a result arrives, good or bad, or a step
+  needs the owner. Not on every agent notification. Things that finish
+  together make one update.
+- When the owner is present and has heard nothing for 30 minutes, send one
+  line: what is running and when the next news is due. Silence reads as
+  stalled.
+
+### What an update looks like
+
+Ten lines at most, in plain words, in this order:
+
+1. **Done:** one line per finished thing, saying what it means for the
+   project, with its issue or PR number.
+2. **Running:** one line.
+3. **Usage:** agent tokens since the last update, and for the epic so far.
+4. **Insight**, optional, at most one: something learned that a senior
+   engineer would find worth knowing. It also goes in the issue's guide note.
+5. **Last line:** the one thing needed from the owner, with exact steps, or
+   "Nothing needed from you."
+
+Explain a term the first time the owner meets it. Give each thing one name:
+the epic's name, not "milestone 1". Leave out model IDs, agent IDs, and paths
+unless the owner must act on one.
+
+### Decide or ask
+
+- Decide alone anything reversible that is not under "Ask the owner first".
+  Report it as done, with the alternative: "I chose X; say if you want Y."
+  Do not ask a yes-or-no question about it.
+- Ask only for what is under "Ask the owner first", a change of direction
+  (another model family, dataset, or epic goal), or a step only the owner can
+  do. One ask at a time.
+- An unanswered ask waits on its issue under `needs-owner`. Repeat it only
+  when it blocks the next task, and say that it does.
+- Before work expected to cost more than about 500k agent tokens, give the
+  estimate and what it buys in the update.
+
+### Showing things
 
 - When something needs their eyes, open it (`open <url>` or `open <file>`)
-  and say what to look at and why.
-- Put the key content in the message itself. Do not reply with only a path.
-- Ask decisions as direct questions in the conversation. Do not leave
-  placeholders in files for the owner to fill in.
-- End each session with a short summary: what changed, what was decided, what
-  needs them.
+  and say what to look at and why. Put the key content in the message; never
+  reply with only a path.
+- Do not leave placeholders in files for the owner to fill in.
+- When an epic starts, send its goal, order of work, expected cost, and the
+  steps that will need the owner, in five lines.
+- End each session with an update in the form above.
 
 ## Commit signing
 
@@ -222,6 +268,11 @@ tools/install_archify.sh       # one-time: install the Archify diagram skill
 - Inside an agent worktree, `uv run` warns that `VIRTUAL_ENV` does not match.
   It is harmless. Prefix the command with `env -u VIRTUAL_ENV` to silence it.
 - A fresh worktree has no environment. Run `uv sync --dev` first.
+- The shell is zsh. It does not split `$var` into words, reads `$VAR:r` as a
+  modifier, and fails on an unmatched glob. Run multi-line scripts as
+  `bash <<'EOF'` and write `${VAR}`. macOS has no `timeout`.
+- Before a timed laptop run, check the laptop is on mains power and run it
+  under `caffeinate -dims`, so sleep or a locked screen cannot spoil it.
 
 ## Diagrams
 

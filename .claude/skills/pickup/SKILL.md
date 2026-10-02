@@ -32,7 +32,8 @@ conversations.
 5. For each item that is **In progress**, read the issue in full, body and
    comments, with the command under "The board" in `CLAUDE.md`. The last
    handoff comment says where the work stopped.
-6. Report to the owner, briefly:
+6. Report to the owner as an update, in the form under "Keeping the owner
+   informed" in `CLAUDE.md`. Cover:
    - What is in progress and where it stopped. If no task is in progress, say
      so.
    - What is ready to start next, following the epic's order of work.
