@@ -8,6 +8,15 @@ each links to the issue or pull request that holds the detail.
 
 ### 2026-10-02
 
+**Result**
+- First measured bar: a small head on frozen, unadapted SigLIP 2 features
+  reaches a mean `ap_iou25` of 0.25 (RGB) and 0.30 (thermal) with all
+  training labels, and 0.04 and 0.07 with 1%. `ap_iou50` stays under 0.09,
+  people under 16 px are not found in RGB, and the spread over held-out
+  sites is as large as the mean. One seed per run.
+  ([results](docs/detection-head-results.md),
+  [#66](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/66))
+
 **Changed**
 - The lead keeps the owner informed on a fixed rhythm: short updates when
   something finishes or after 30 minutes of silence, one ask at a time, a
