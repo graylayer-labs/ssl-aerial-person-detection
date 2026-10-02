@@ -327,7 +327,7 @@ Hashing all 43 GB takes about 25 seconds.
   records `verified: false` and no root hash. `prepare --scratch` skips the
   check and records `verified: false`; it will not overwrite manifests that
   are not scratch unless `--force`.
-- A normal run (`train-ssl`, `train-detector`) refuses manifests whose
+- A normal run (`train-ssl`, `train-detector`, `train-head`) refuses manifests whose
   `data_quality.json` is missing, scratch, or unverified, re-verifies the
   directories those manifests reference against the list before starting,
   and copies `data` and `provenance` into `run.json` with `data_verified_at`.
@@ -449,7 +449,7 @@ to its issue or PR. No version numbers.
   this: it refuses a normal run unless the tree is clean (untracked files
   count) and `HEAD` is on the local `origin/main`, and it fails closed if git
   cannot tell. It never fetches, so run `git fetch` first. Pass `--scratch` to
-  `train-ssl` or `train-detector` for a debugging run: it writes to
+  `train-ssl`, `train-detector` or `train-head` for a debugging run: it writes to
   `outputs/scratch-<run-name>/` with `"scratch": true` in `run.json`. A run
   directory is never overwritten; pick another `--run-name`.
 - The run directory is the only place an experiment writes (there is no
@@ -484,6 +484,13 @@ to its issue or PR. No version numbers.
   `index.jsonl` line (source SHA-256, the writing run's name and commit), that
   run's `run.json` (clean `main` unless scratch, data verification), and
   `cache.json` (weights, revision, settings).
+- **Detection head.** `uv run aerial-search train-head rgb|thermal --fold
+  <site-day> --percent 1|5|10|100` trains the person-centre head on cached
+  features for one camera, fold, fraction and seed, and writes the test
+  report to `outputs/detection-head/<cache>/...`. A normal run refuses a
+  scratch or incomplete cache. `uv run aerial-search head-table <dir>`
+  tabulates completed runs per fold with the mean and spread, and refuses
+  scratch or unfinished ones. See `docs/detection-head-design.md`.
 - Any number quoted in a doc or README must be reproducible from a committed
   config. If a number cannot be traced, remove it.
 - Report negative results. State what was expected, what happened, and the

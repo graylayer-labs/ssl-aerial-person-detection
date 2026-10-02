@@ -9,8 +9,8 @@ from pathlib import Path
 
 from aerial_search.data import checksums
 from aerial_search.data.fetch import WISARD_FULL, WISARD_SAMPLE, fetch_dataset
-from aerial_search.data.folds import SEED as FOLD_SEED
 from aerial_search.data.folds import (
+    PERCENTS,
     VALIDATION,
     ImageSize,
     check_folds,
@@ -19,6 +19,7 @@ from aerial_search.data.folds import (
     view_dir,
     write_folds,
 )
+from aerial_search.data.folds import SEED as FOLD_SEED
 from aerial_search.data.wisard import (
     WISARD_COLLECTIONS,
     prepare_manifests,
@@ -265,6 +266,48 @@ def build_parser() -> argparse.ArgumentParser:
     _add_fold_flag(detect)
     _add_run_flags(detect)
 
+    head = subcommands.add_parser(
+        "train-head",
+        help="train the person-centre head on cached features: one fold, one "
+        "camera, one label fraction, one seed (docs/detection-head-design.md)",
+    )
+    head.add_argument("camera", choices=["rgb", "thermal"])
+    head.add_argument("--percent", type=int, choices=PERCENTS, required=True)
+    head.add_argument("--seed", type=int, default=SEED)
+    head.add_argument(
+        "--cache",
+        type=Path,
+        default=Path("outputs/features/siglip2-base-naflex-1024tok"),
+        help="feature cache directory; only read",
+    )
+    head.add_argument("--data-root", type=Path, default=Path("data/raw/wisard-full"))
+    head.add_argument(
+        "--manifests", type=Path, default=Path("data/manifests/wisard-full")
+    )
+    from aerial_search.experiments.head_experiment import Recipe
+
+    defaults = Recipe()
+    for name in ("steps", "batch_size", "eval_every", "upsample", "hidden", "top_k"):
+        flag = "--" + name.replace("_", "-")
+        head.add_argument(flag, type=int, default=getattr(defaults, name))
+    head.add_argument("--learning-rate", type=float, default=defaults.learning_rate)
+    head.add_argument("--weight-decay", type=float, default=defaults.weight_decay)
+    head.add_argument("--device", help="default: mps if available, else cpu")
+    _add_fold_flag(head)
+    _add_run_flags(head)
+
+    table = subcommands.add_parser(
+        "head-table",
+        help="table of completed train-head runs: per camera, fold and fraction, "
+        "with mean and spread over folds; refuses scratch or unfinished runs",
+    )
+    table.add_argument(
+        "runs",
+        type=Path,
+        help="e.g. outputs/detection-head/siglip2-base-naflex-1024tok",
+    )
+    table.add_argument("--json", type=Path, help="also write the summary as JSON")
+
     return parser
 
 
@@ -408,6 +451,51 @@ def main(argv: list[str] | None = None) -> None:
         except (feature_cache.CacheError, run.ProvenanceError) as error:
             raise SystemExit(f"refusing to cache: {error}") from error
         print(json.dumps(asdict(summary), indent=2))
+        return
+
+    if args.command == "train-head":
+        import torch
+
+        from aerial_search import run
+        from aerial_search.experiments import feature_cache, head_experiment
+        from aerial_search.models.components import get_device
+
+        names = ("steps", "batch_size", "learning_rate", "weight_decay", "eval_every")
+        names += ("upsample", "hidden", "top_k")
+        recipe = head_experiment.Recipe(**{n: getattr(args, n) for n in names})
+        try:
+            summary = head_experiment.run_head(
+                cache_dir=args.cache,
+                manifests=args.manifests,
+                data_root=args.data_root,
+                fold=args.fold,
+                camera=args.camera,
+                percent=args.percent,
+                seed=args.seed,
+                recipe=recipe,
+                scratch=args.scratch,
+                run_name=args.run_name,
+                device=torch.device(args.device) if args.device else get_device(),
+            )
+        except (
+            feature_cache.CacheError,
+            head_experiment.LeakError,
+            run.ProvenanceError,
+        ) as error:
+            raise SystemExit(f"refusing to start: {error}") from error
+        print(json.dumps(summary, indent=2))
+        return
+
+    if args.command == "head-table":
+        from aerial_search.experiments import head_table
+
+        try:
+            summary = head_table.summarise(head_table.collect(args.runs))
+        except head_table.TableError as error:
+            raise SystemExit(f"refusing to tabulate: {error}") from error
+        print(head_table.markdown(summary))
+        if args.json:
+            args.json.write_text(json.dumps(summary, indent=2) + "\n")
         return
 
     if args.command == "train-detector":

@@ -15,6 +15,12 @@ each links to the issue or pull request that holds the detail.
   ([#74](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/74))
 
 **Added**
+- `aerial-search train-head` trains a CenterNet-style person-centre head on
+  the cached features, one camera, fold, label fraction and seed per run,
+  and `head-table` gathers completed runs into a per-fold table with the
+  mean and spread. Design and expected accuracy in
+  `docs/detection-head-design.md`.
+  ([#66](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/66))
 - `aerial-search cache-features` runs the frozen SigLIP 2 NaFlex backbone once
   per image and caches pooled fp16 patch features, keyed by model, weight
   checksum, token budget, pooling and dtype, and resumable with a verified
