@@ -8,6 +8,12 @@ each links to the issue or pull request that holds the detail.
 
 ### 2026-10-02
 
+**Changed**
+- The lead no longer reports or tallies usage; the owner sees it in their
+  status line. The quiet limits stay: two agents, the cheaper model by
+  default, one review per pull request, no new agents above 80%.
+  ([#81](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/81))
+
 **Result**
 - First measured bar: a small head on frozen, unadapted SigLIP 2 features
   reaches a mean `ap_iou25` of 0.25 (RGB) and 0.30 (thermal) with all
