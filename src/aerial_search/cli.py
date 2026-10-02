@@ -208,6 +208,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     check_cache.add_argument("cache", type=Path, help="a features/<model>-<n>tok dir")
     check_cache.add_argument("manifests", type=Path, help="output of prepare")
+    check_cache.add_argument(
+        "--camera",
+        choices=["rgb", "thermal"],
+        help="check this camera only, for a cache that holds one (default: both)",
+    )
 
     cache.add_argument("model", choices=["siglip2-base-naflex"])
     cache.add_argument("--camera", choices=["rgb", "thermal"], required=True)
@@ -226,6 +231,13 @@ def build_parser() -> argparse.ArgumentParser:
         "1/2 and 2/2 to halve a session",
     )
     cache.add_argument("--token-budget", type=int, default=1024)
+    cache.add_argument(
+        "--thermal-input",
+        choices=["replicate", "equalise"],
+        default="replicate",
+        help="how thermal frames reach the backbone (#68); equalise builds a "
+        "separate cache, outputs/features/<model>-<n>tok-equalise; thermal only",
+    )
     cache.add_argument(
         "--pooling", type=int, default=2, help="k of a k x k average pool; 1 is none"
     )
@@ -420,7 +432,8 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "check-cache":
         from aerial_search.experiments import feature_cache
 
-        missing = feature_cache.missing_frames(args.cache, args.manifests)
+        cameras = (args.camera,) if args.camera else ("rgb", "thermal")
+        missing = feature_cache.missing_frames(args.cache, args.manifests, cameras)
         for camera, paths in missing.items():
             print(f"{camera}: {len(paths)} missing")
             for path in paths:
@@ -447,8 +460,9 @@ def main(argv: list[str] | None = None) -> None:
                 verify=args.verify,
                 scratch=args.scratch,
                 session=args.run_name,
+                input_handling=args.thermal_input,
             )
-        except (feature_cache.CacheError, run.ProvenanceError) as error:
+        except (feature_cache.CacheError, ValueError, run.ProvenanceError) as error:
             raise SystemExit(f"refusing to cache: {error}") from error
         print(json.dumps(asdict(summary), indent=2))
         return
