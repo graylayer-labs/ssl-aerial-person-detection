@@ -267,9 +267,10 @@ def check_cache(
     manifest records, and one grid shape. A normal run refuses an image not
     in the index or without its feature file (the cache is incomplete); a
     scratch run leaves such images out and lists them in `missing`. A normal
-    run also refuses a cache under `scratch-features/`, any image
-    written by a cache session that was scratch or has no run record, and
-    (given `pinned`) any image whose source hash is not the pinned one.
+    run also refuses a cache under `scratch-features/` or holding a
+    `session.lock` (being written), any image written by a cache session
+    that was scratch, not completed, or has no run record, and (given
+    `pinned`) any image whose source hash is not the pinned one.
     """
     try:
         settings = json.loads((cache_dir / "cache.json").read_text())
@@ -279,6 +280,12 @@ def check_cache(
         ) from None
     if not scratch and cache_dir.parent.name.startswith("scratch"):
         raise CacheError(f"{cache_dir} is a scratch cache; a normal run cannot use it")
+    lock = cache_dir / "session.lock"
+    if not scratch and lock.exists():
+        raise CacheError(
+            f"{lock} exists ({lock.read_text().strip()}): a session is writing the "
+            "cache, so its index may still change; wait for it to finish"
+        )
     index = read_index(cache_dir)
     images = [str(r["image"]) for r in records]
     missing = [
@@ -319,6 +326,11 @@ def check_cache(
             raise CacheError(
                 f"cache session {name} is scratch or has no run record; a normal "
                 "run cannot use its features"
+            )
+        if not scratch and run is not None and run.get("status") != "completed":
+            raise CacheError(
+                f"cache session {name} has status {run.get('status')!r}, not "
+                "completed; a normal run cannot use its features"
             )
         sessions[name] = None if run is None else run.get("status")
     return CacheView(entries, sessions, settings, missing)

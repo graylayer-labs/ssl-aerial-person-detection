@@ -295,6 +295,26 @@ def test_a_normal_run_refuses_frames_written_by_a_scratch_session(tmp_path):
         he.check_cache(cache, records, "thermal", scratch=False)
 
 
+@pytest.mark.parametrize("status", ["started", "failed", None])
+def test_a_normal_run_refuses_features_from_an_unfinished_session(tmp_path, status):
+    records = [rec("x", "210417_MtErie_I/a.jpg", [])]
+    cache = fake_cache(tmp_path, records)
+    record = {"scratch": False, **({"status": status} if status else {})}
+    (cache / "runs" / "s1" / "run.json").write_text(json.dumps(record))
+    with pytest.raises(CacheError, match="s1.*not completed"):
+        he.check_cache(cache, records, "thermal", scratch=False)
+    he.check_cache(cache, records, "thermal", scratch=True)
+
+
+def test_a_normal_run_refuses_a_cache_being_written(tmp_path):
+    records = [rec("x", "210417_MtErie_I/a.jpg", [])]
+    cache = fake_cache(tmp_path, records)
+    (cache / "session.lock").write_text("pid 1 session s2\n")
+    with pytest.raises(CacheError, match="session.lock"):
+        he.check_cache(cache, records, "thermal", scratch=False)
+    he.check_cache(cache, records, "thermal", scratch=True)
+
+
 def test_a_cache_entry_whose_image_size_disagrees_is_refused(tmp_path):
     records = [rec("x", "210417_MtErie_I/a.jpg", [])]
     cache = fake_cache(tmp_path, records)
