@@ -477,6 +477,7 @@ def fake_run(
     recipe=None,
     cache_hash="c0",
     tiny=True,
+    arm=None,
     **record,
 ) -> None:
     directory = root / f"{camera}-{fold}-{percent}"
@@ -486,6 +487,7 @@ def fake_run(
         "fold": fold,
         "percent": percent,
         "recipe": {**asdict(he.Recipe()), **(recipe or {})},
+        **({} if arm is None else {"input_handling": arm}),
     }
     base = {
         "status": "completed",
@@ -593,3 +595,109 @@ def test_the_table_refuses_two_runs_of_the_same_cell(tmp_path):
     fake_run(tmp_path / "two", "rgb", "A", 100, 0.4, 0.3)
     with pytest.raises(head_table.TableError, match="twice"):
         head_table.summarise(head_table.collect(tmp_path))
+
+
+# --- the input-arm ablation table (#68) ---------------------------------------
+
+
+def arm_dirs(tmp_path: Path, scores: dict[str, dict[str, tuple[float, float]]]):
+    """One directory per arm; scores[arm][fold] = (ap25, ap50), thermal at 10%."""
+    roots = []
+    for arm, folds in scores.items():
+        root = tmp_path / arm
+        for fold, (a25, a50) in folds.items():
+            fake_run(root, "thermal", fold, 10, a25, a50, arm=arm, cache_hash=arm)
+        roots.append(root)
+    return roots
+
+
+def test_a_run_without_an_arm_is_the_replicate_arm(tmp_path):
+    from aerial_search.experiments import head_table
+
+    fake_run(tmp_path, "thermal", "A", 10, 0.2, 0.1)  # a #66 run
+
+    assert head_table.collect(tmp_path)[0]["arm"] == "replicate"
+
+
+def test_the_ablation_table_has_each_arm_per_fold_with_spread_and_the_paired_change(
+    tmp_path,
+):
+    from aerial_search.experiments import head_table
+
+    roots = arm_dirs(
+        tmp_path,
+        {
+            "replicate": {"A": (0.2, 0.1), "B": (0.4, 0.2)},
+            "equalise": {"A": (0.3, 0.1), "B": (0.5, 0.3)},
+        },
+    )
+
+    by_arm = head_table.collect_arms(roots, camera="thermal", percents=["10"])
+    summary = head_table.summarise_arms(by_arm)
+    entry = summary["thermal"]["10"]
+
+    assert entry["replicate"]["mean"]["ap_iou25"] == pytest.approx(0.3)
+    assert entry["equalise"]["mean"]["ap_iou25"] == pytest.approx(0.4)
+    assert entry["equalise"]["delta"]["ap_iou25"][0] == pytest.approx(0.1)
+    assert entry["equalise"]["delta"]["ap_iou25"][1] == pytest.approx(0.0, abs=1e-12)
+    assert "delta" not in entry["replicate"]
+    text = head_table.markdown_arms(summary, head_table.arm_notes(by_arm))
+    assert "| replicate |" in text and "| equalise |" in text
+    assert "0.200 / 0.100" in text and "0.500 / 0.300" in text  # per fold
+    assert "0.400 ± 0.141" in text  # mean and spread of ap_iou25
+
+
+def test_the_ablation_needs_the_control_arm(tmp_path):
+    from aerial_search.experiments import head_table
+
+    roots = arm_dirs(tmp_path, {"equalise": {"A": (0.3, 0.1)}})
+    by_arm = head_table.collect_arms(roots, camera="thermal", percents=["10"])
+
+    with pytest.raises(head_table.TableError, match="replicate"):
+        head_table.summarise_arms(by_arm)
+
+
+def test_one_directory_may_hold_one_arm_and_an_arm_may_not_appear_twice(tmp_path):
+    from aerial_search.experiments import head_table
+
+    fake_run(tmp_path / "x", "thermal", "A", 10, 0.2, 0.1, arm="replicate")
+    fake_run(tmp_path / "x", "thermal", "B", 10, 0.2, 0.1, arm="equalise")
+    with pytest.raises(head_table.TableError, match="one arm"):
+        head_table.collect_arms([tmp_path / "x"], camera="thermal", percents=["10"])
+
+    one = arm_dirs(tmp_path / "one", {"replicate": {"A": (0.2, 0.1)}})
+    two = arm_dirs(tmp_path / "two", {"replicate": {"A": (0.4, 0.3)}})
+    with pytest.raises(head_table.TableError, match="twice"):
+        head_table.collect_arms([*one, *two], camera="thermal", percents=["10"])
+
+
+def test_arms_must_share_a_seed_but_a_recipe_difference_is_stated_not_hidden(tmp_path):
+    from aerial_search.experiments import head_table
+
+    fake_run(tmp_path / "a", "thermal", "A", 10, 0.2, 0.1, arm="replicate")
+    fake_run(
+        tmp_path / "c",
+        "thermal",
+        "A",
+        10,
+        0.3,
+        0.1,
+        arm="stem",
+        recipe={"steps": 300},
+        cache_hash="geometry",
+    )
+    by_arm = head_table.collect_arms(
+        [tmp_path / "a", tmp_path / "c"], camera="thermal", percents=["10"]
+    )
+
+    notes = head_table.arm_notes(by_arm)
+
+    assert any("stem" in n and "recipe.steps" in n and "300" in n for n in notes)
+    assert "recipes differ" in head_table.markdown_arms(
+        head_table.summarise_arms(by_arm), notes
+    )
+    fake_run(tmp_path / "d", "thermal", "A", 10, 0.3, 0.1, arm="equalise", seed=9)
+    with pytest.raises(head_table.TableError, match="seed"):
+        head_table.collect_arms(
+            [tmp_path / "a", tmp_path / "d"], camera="thermal", percents=["10"]
+        )

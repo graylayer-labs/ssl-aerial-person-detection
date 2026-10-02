@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import warnings
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +72,8 @@ def collect(root: Path) -> list[dict[str, Any]]:
                 "camera": config["camera"],
                 "fold": config["fold"],
                 "percent": str(config["percent"]),
+                # #66 runs predate the field and are the replicate arm
+                "arm": config.get("input_handling", "replicate"),
                 "commit": record.get("commit"),
                 "made_with": _made_with(record),
                 "overall": _scores(metrics["overall"]),
@@ -220,4 +223,152 @@ def markdown(summary: dict[str, Any]) -> str:
             ]
             lines.append(f"| {percent}% | " + " | ".join(cells) + " |")
         lines.append("")
+    return "\n".join(lines)
+
+
+# --- the thermal input ablation (#68) -----------------------------------------
+
+CONTROL = "replicate"
+ARM_ORDER = ("replicate", "equalise", "stem")
+
+
+def collect_arms(
+    roots: Sequence[Path],
+    *,
+    camera: str | None = None,
+    percents: Sequence[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Runs by input arm, from one directory per arm.
+
+    Each directory goes through `collect` (so scratch or unfinished runs and
+    runs made differently within a directory are refused). A directory holds
+    one arm and an arm comes from one directory. All arms must share the
+    seed: that is the one thing that must not differ. Other differences (a
+    shorter recipe for the stem arm, say) are allowed but listed by
+    `arm_notes` under the table.
+    """
+    by_arm: dict[str, list[dict[str, Any]]] = {}
+    for root in roots:
+        runs = [
+            r
+            for r in collect(root)
+            if (camera is None or r["camera"] == camera)
+            and (percents is None or r["percent"] in percents)
+        ]
+        arms = {r["arm"] for r in runs}
+        if len(arms) > 1:
+            raise TableError(
+                f"{root} holds several arms ({sorted(arms)}); one arm per directory"
+            )
+        for arm in arms:
+            if arm in by_arm:
+                raise TableError(f"arm {arm!r} appears twice (second in {root})")
+            by_arm[arm] = runs
+    seeds = {
+        arm: {r["made_with"]["seed"] for r in runs} for arm, runs in by_arm.items()
+    }
+    if len({seed for v in seeds.values() for seed in v}) > 1:
+        raise TableError(f"seed differs between arms: {seeds}")
+    return by_arm
+
+
+def arm_notes(by_arm: dict[str, list[dict[str, Any]]]) -> list[str]:
+    """Every way an arm's recipe differs from the control arm's, one line each."""
+    notes: list[str] = []
+    if CONTROL not in by_arm:
+        return notes
+    base = by_arm[CONTROL][0]["made_with"]
+    for arm in ARM_ORDER:
+        if arm == CONTROL or arm not in by_arm:
+            continue
+        made = by_arm[arm][0]["made_with"]
+        for field in sorted(set(base) | set(made)):
+            if field == "cache.json sha256":
+                continue  # differs by design: the arm is what the cache holds
+            if base.get(field) != made.get(field):
+                notes.append(
+                    f"{arm}: {field} is {made.get(field)!r}, {CONTROL} has "
+                    f"{base.get(field)!r}"
+                )
+    return notes
+
+
+def summarise_arms(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    """camera -> percent -> arm -> `summarise` entry, plus for each non-control
+    arm `delta`: mean, sample sd and count of the per-fold change of each
+    metric against the control, over the folds both have."""
+    if CONTROL not in by_arm:
+        raise TableError(f"no {CONTROL!r} arm: the ablation needs its control")
+    per_arm = {arm: summarise(runs) for arm, runs in by_arm.items()}
+    out: dict[str, Any] = {}
+    for arm in (a for a in ARM_ORDER if a in per_arm):
+        for camera, by_percent in per_arm[arm].items():
+            for percent, entry in by_percent.items():
+                out.setdefault(camera, {}).setdefault(percent, {})[arm] = entry
+    for by_percent in out.values():
+        for arms in by_percent.values():
+            control = arms.get(CONTROL)
+            for arm, entry in arms.items():
+                if arm == CONTROL or control is None:
+                    continue
+                common = sorted(set(entry["folds"]) & set(control["folds"]))
+                entry["delta"] = {
+                    metric: (
+                        *_spread(
+                            [
+                                entry["folds"][f][metric] - control["folds"][f][metric]
+                                for f in common
+                            ]
+                        ),
+                        len(common),
+                    )
+                    for metric in ("ap_iou25", "ap_iou50")
+                }
+    return out
+
+
+def markdown_arms(summary: dict[str, Any], notes: Sequence[str] = ()) -> str:
+    """One table per camera and label fraction: a row per arm, each fold's
+    ap_iou25 / ap_iou50, the mean and sample sd over folds, and the mean
+    per-fold change of ap_iou25 against the control."""
+    lines: list[str] = []
+    for camera, by_percent in summary.items():
+        for percent in sorted(by_percent, key=int):
+            arms = by_percent[percent]
+            folds = sorted({f for e in arms.values() for f in e["folds"]})
+            lines += [
+                f"### {camera}, {percent}% of labels: test ap_iou25 / ap_iou50 "
+                "per fold, mean ± sd over folds, and the mean per-fold change "
+                f"of ap_iou25 against {CONTROL}",
+                "",
+                "| arm | "
+                + " | ".join(folds)
+                + " | ap_iou25 | ap_iou50 | change in ap_iou25 | folds |",
+                "|---" * (len(folds) + 5) + "|",
+            ]
+            for arm, e in arms.items():
+                cells = [
+                    f"{_fmt(e['folds'][f]['ap_iou25'])} / "
+                    f"{_fmt(e['folds'][f]['ap_iou50'])}"
+                    if f in e["folds"]
+                    else "-"
+                    for f in folds
+                ]
+                delta = e.get("delta")
+                change = (
+                    "-"
+                    if delta is None
+                    else f"{delta['ap_iou25'][0]:+.3f} ± {_fmt(delta['ap_iou25'][1])}"
+                )
+                stats = [
+                    _pm(e["mean"]["ap_iou25"], e["std"]["ap_iou25"]),
+                    _pm(e["mean"]["ap_iou50"], e["std"]["ap_iou50"]),
+                    change,
+                    str(e["n_folds"]),
+                ]
+                lines.append(f"| {arm} | " + " | ".join([*cells, *stats]) + " |")
+            lines.append("")
+    lines += [SELECTION_CAVEAT, ""]
+    if notes:
+        lines += ["The arms' recipes differ:", "", *(f"- {n}" for n in notes), ""]
     return "\n".join(lines)

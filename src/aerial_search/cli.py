@@ -322,7 +322,22 @@ def build_parser() -> argparse.ArgumentParser:
     table.add_argument(
         "runs",
         type=Path,
-        help="e.g. outputs/detection-head/siglip2-base-naflex-1024tok",
+        nargs="+",
+        help="e.g. outputs/detection-head/siglip2-base-naflex-1024tok; with "
+        "--ablation, one directory per input arm",
+    )
+    table.add_argument(
+        "--ablation",
+        action="store_true",
+        help="the thermal input ablation (#68): one directory per arm, one table "
+        "per camera and fraction with a row per arm",
+    )
+    table.add_argument("--camera", choices=["rgb", "thermal"], help="with --ablation")
+    table.add_argument(
+        "--percent",
+        action="append",
+        choices=[str(p) for p in PERCENTS],
+        help="with --ablation: only this label fraction (repeat for several)",
     )
     table.add_argument("--json", type=Path, help="also write the summary as JSON")
 
@@ -511,7 +526,18 @@ def main(argv: list[str] | None = None) -> None:
         from aerial_search.experiments import head_table
 
         try:
-            summary = head_table.summarise(head_table.collect(args.runs))
+            if args.ablation:
+                by_arm = head_table.collect_arms(
+                    args.runs, camera=args.camera, percents=args.percent
+                )
+                summary = head_table.summarise_arms(by_arm)
+                print(head_table.markdown_arms(summary, head_table.arm_notes(by_arm)))
+                if args.json:
+                    args.json.write_text(json.dumps(summary, indent=2) + "\n")
+                return
+            if len(args.runs) != 1:
+                raise head_table.TableError("several directories need --ablation")
+            summary = head_table.summarise(head_table.collect(args.runs[0]))
         except head_table.TableError as error:
             raise SystemExit(f"refusing to tabulate: {error}") from error
         print(head_table.markdown(summary))
