@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from pathlib import Path
 
@@ -326,7 +327,7 @@ def dataset(tmp_path: Path):
     return raw, manifests
 
 
-def fake_loader(budget: int, pooling: int) -> FakeExtractor:
+def fake_loader(budget: int, pooling: int, transform=None) -> FakeExtractor:
     return FakeExtractor()
 
 
@@ -554,3 +555,91 @@ def test_missing_frames_lists_what_the_manifests_reference_but_the_cache_lacks(
     kept = [ln for ln in index.read_text().splitlines() if "extra" not in ln]
     index.write_text("\n".join(kept) + "\n")
     assert fc.missing_frames(cache, manifests)["rgb"] == ["V_1/extra.jpeg"]
+    # a cache that holds one camera is checked for that camera only
+    assert fc.missing_frames(cache, manifests, ("rgb",)).keys() == {"rgb"}
+
+
+# --- the thermal input arm is part of the cache's identity (#68) ---------------
+
+
+def other_arm() -> fc.CacheSettings:
+    return dataclasses.replace(SETTINGS, input_handling="equalise")
+
+
+def test_the_default_input_handling_is_replicate_and_names_the_existing_cache():
+    assert SETTINGS.input_handling == "replicate"
+    assert SETTINGS.name() == "fake-64tok"
+    assert other_arm().name() == "fake-64tok-equalise"
+
+
+def test_a_cache_made_before_the_field_existed_is_the_replicate_cache(tmp_path):
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    old = {k: v for k, v in SETTINGS.__dict__.items() if k != "input_handling"}
+    (cache / "cache.json").write_text(
+        json.dumps(
+            {
+                "settings": old,
+                "environment": {"transformers": fc._transformers_version()},
+            }
+        )
+    )
+
+    fc.check_settings(cache, SETTINGS)  # the same cache
+    with pytest.raises(fc.CacheError, match="input_handling"):
+        fc.check_settings(cache, other_arm())
+
+
+def test_a_cache_refuses_a_run_with_another_input_handling(tmp_path, frames):
+    build(tmp_path, frames, FakeExtractor())
+
+    with pytest.raises(fc.CacheError, match="input_handling"):
+        build(tmp_path, frames, FakeExtractor(), settings=other_arm())
+
+
+def run_arm(tmp_path, dataset, camera, input_handling, loader):
+    raw, manifests = dataset
+    (tmp_path / "repo").mkdir(exist_ok=True)
+    return fc.cache_features(
+        model="siglip2-base-naflex",
+        camera=camera,
+        data_root=raw,
+        manifests=manifests,
+        collections=None,
+        limit=None,
+        token_budget=1024,
+        pooling=2,
+        verify=0,
+        scratch=True,
+        session="s1",
+        repo=tmp_path / "repo",
+        load_extractor=loader,
+        weights=lambda repo, revision: {"model.safetensors": "aa"},
+        input_handling=input_handling,
+    )
+
+
+def test_equalisation_is_refused_for_the_rgb_camera(tmp_path, dataset):
+    with pytest.raises(ValueError, match="thermal"):
+        run_arm(tmp_path, dataset, "rgb", "equalise", lambda b, p, t=None: None)
+
+
+def test_an_equalised_thermal_cache_lives_in_its_own_directory_and_records_why(
+    tmp_path, dataset
+):
+    seen = []
+
+    def loader(budget, pooling, transform=None):
+        seen.append(transform)
+        return FakeExtractor()
+
+    run_arm(tmp_path, dataset, "thermal", "equalise", loader)
+
+    top = tmp_path / "repo/outputs/scratch-features"
+    cache = top / "siglip2-base-naflex-1024tok-equalise"
+    assert not (top / "siglip2-base-naflex-1024tok").exists()
+    stored = json.loads((cache / "cache.json").read_text())
+    assert stored["settings"]["input_handling"] == "equalise"
+    record = json.loads((cache / "runs/s1/run.json").read_text())
+    assert "equalis" in record["config"]["preprocessing"]
+    assert seen == [fc.input_transform("equalise", "thermal")]

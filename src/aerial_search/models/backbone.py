@@ -10,6 +10,7 @@ fake.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -156,14 +157,25 @@ class NaflexExtractor:
     hidden state of the vision tower, not the pooled embedding.
     """
 
-    def __init__(self, model, processor, token_budget: int, pooling: int) -> None:
+    def __init__(
+        self,
+        model,
+        processor,
+        token_budget: int,
+        pooling: int,
+        transform: Callable[[Image.Image], Image.Image] | None = None,
+    ) -> None:
         self.model = model
         self.processor = processor
         self.token_budget = token_budget
         self.pooling = pooling
+        # applied to the pixels first; None is the unchanged image (#68)
+        self.transform = transform
 
     def prepare(self, image: Image.Image) -> Prepared:
         """Resize and patchify on the CPU; safe to call from worker threads."""
+        if self.transform is not None:
+            image = self.transform(image)
         inputs = self.processor(
             images=[image.convert("RGB")],
             return_tensors="pt",

@@ -10,6 +10,7 @@ the cache's own functions. The design is in docs/detection-head-design.md.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import math
 from collections.abc import Callable, Mapping, Sequence
@@ -37,6 +38,7 @@ from aerial_search.experiments.feature_cache import (
     read_index,
 )
 from aerial_search.models.head import CentreHead, centre_loss
+from aerial_search.models.thermal_input import DEFAULT_ARM
 
 LOG_SIZE_RANGE = (-8.0, 4.0)  # clamp before exp: 0.0003 to 55 cells
 
@@ -403,6 +405,11 @@ def check_cache(
     return CacheView(entries, sessions, settings, missing)
 
 
+def cache_arm(cache_json: Mapping[str, Any]) -> str:
+    """How the cache's frames reached the backbone; absent means replicate."""
+    return str(cache_json.get("settings", {}).get("input_handling", DEFAULT_ARM))
+
+
 # --- data, training, scoring ---------------------------------------------------
 
 
@@ -567,8 +574,106 @@ def evaluate(
 # --- one run -------------------------------------------------------------------
 
 
-def default_run_name(cache_dir: Path, camera: str, fold: str, percent: int, seed: int):
-    return f"detection-head/{cache_dir.name}/{camera}-{fold}-{percent}pct-seed{seed}"
+def default_run_name(
+    cache_dir: Path,
+    camera: str,
+    fold: str,
+    percent: int,
+    seed: int,
+    warm: bool = False,
+):
+    suffix = "-warm" if warm else ""
+    return (
+        f"detection-head/{cache_dir.name}{suffix}/"
+        f"{camera}-{fold}-{percent}pct-seed{seed}"
+    )
+
+
+def build_head(seed: int, dim: int, recipe: Recipe) -> CentreHead:
+    """Seed, then build the head: the one place a run's initial head is made.
+
+    Arm C (`stem_experiment`) calls this too, before it draws anything else
+    from the random stream, so at one seed every arm starts from the same head.
+    """
+    torch.manual_seed(seed)
+    return CentreHead(dim=dim, hidden=recipe.hidden, upsample=recipe.upsample)
+
+
+def load_warm_start(
+    init_head: Path,
+    *,
+    fold: str,
+    percent: int,
+    camera: str,
+    seed: int,
+    recipe: Recipe,
+    cache_settings: Mapping[str, Any],
+    manifests: Sequence[Path],
+    scratch: bool,
+) -> tuple[dict[str, torch.Tensor], dict[str, str]]:
+    """The trained head of a finished arm-A run, and the record of where it is from.
+
+    The run must be completed, cold (not itself warm-started), made with the
+    replicate input, and share this run's fold, percent, camera, seed, head
+    size and cache settings; anything else is refused, so a warm start can
+    never carry another fold's labels or another seed's head into this run.
+    A scratch run's head is accepted only by a scratch run. Its manifests
+    (by the SHA-256 in its run.json inputs) must be this run's `manifests`.
+    """
+    run_json = init_head / "run.json"
+    try:
+        record = json.loads(run_json.read_text())
+        state = torch.load(init_head / "head.pt", map_location="cpu")
+    except FileNotFoundError as error:
+        raise CacheError(f"{init_head} is not a finished run: {error}") from None
+    if record.get("status") != "completed":
+        raise CacheError(
+            f"{init_head} has status {record.get('status')!r}, not completed"
+        )
+    if record.get("scratch") is not False and not scratch:
+        raise CacheError(f"{init_head} is a scratch run; a normal run cannot use it")
+    config = record.get("config", {})
+    if config.get("warm_start") or config.get("input_handling", DEFAULT_ARM) != (
+        DEFAULT_ARM
+    ):
+        raise CacheError(f"{init_head} is not a cold {DEFAULT_ARM!r} arm run")
+    mine = {"camera": camera, "fold": fold, "percent": percent}
+    for field, value in mine.items():
+        if config.get(field) != value:
+            raise CacheError(
+                f"{init_head}: {field} is {config.get(field)!r}, this run has {value!r}"
+            )
+    if record.get("seed") != seed:
+        raise CacheError(
+            f"{init_head}: seed is {record.get('seed')!r}, this run has {seed!r}"
+        )
+    shape = config.get("recipe", {})
+    for field in ("hidden", "upsample"):
+        if shape.get(field) != getattr(recipe, field):
+            raise CacheError(
+                f"{init_head}: recipe.{field} is {shape.get(field)!r}, this run "
+                f"has {getattr(recipe, field)!r}"
+            )
+    stored = config.get("cache", {}).get("settings", {})
+    keep = {k: v for k, v in stored.items() if k != "input_handling"}
+    here = {k: v for k, v in cache_settings.items() if k != "input_handling"}
+    if keep != here:
+        raise CacheError(f"{init_head} was trained on a different cache")
+    made_with = {Path(i["path"]).name: i["sha256"] for i in record.get("inputs", [])}
+    for path in manifests:
+        theirs = made_with.get(path.name)
+        mine = hashlib.sha256(path.read_bytes()).hexdigest()
+        if theirs != mine:
+            raise CacheError(
+                f"{init_head}: its {path.name} (sha256 {str(theirs)[:12]}) is not "
+                f"this run's ({mine[:12]}); the manifests differ"
+            )
+    sha = hashlib.sha256(run_json.read_bytes()).hexdigest()
+    return state, {
+        "init_head": str(init_head.resolve()),
+        "init_run": str(record.get("run_name")),
+        "run_json_sha256": sha,
+    }
 
 
 def run_head(
@@ -586,12 +691,24 @@ def run_head(
     device: torch.device,
     repo: Path | None = None,
     argv: list[str] | None = None,
+    input_handling: str | None = None,
+    init_head: Path | None = None,
 ) -> dict[str, Any]:
     """One run: train at `percent`, select on validation, score on test.
+
+    The input arm (#68) is the one the cache was made with
+    (`cache.json` settings `input_handling`; a cache without the field is
+    "replicate") and is recorded in `run.json`. `input_handling`, if given,
+    must equal it; a mismatch is refused.
 
     Writes `run.json`, `detection_metrics.json` (test), `training.json`
     (loss, validation scores, chosen step) and `head.pt` into the run
     directory. Returns a short summary.
+
+    `init_head`, a finished cold arm-A run directory with the same fold,
+    percent, camera and seed, starts the head from that run's trained head
+    (a warm start, for the matched control of the stem arm; see
+    `load_warm_start`). It is recorded in `config.warm_start`.
     """
     from aerial_search import run as run_module
     from aerial_search.data import checksums
@@ -611,6 +728,12 @@ def run_head(
         scratch=scratch,
         pinned=pinned,
     )
+    arm = cache_arm(cache.settings)
+    if input_handling is not None and input_handling != arm:
+        raise CacheError(
+            f"{cache_dir} holds {arm!r} features, not {input_handling!r}; use the "
+            "cache made with that input handling"
+        )
     if cache.missing:  # a scratch run only; check_cache refuses a normal one
         print(f"scratch: {len(cache.missing)} images not in the cache, left out")
         absent = set(cache.missing)
@@ -618,10 +741,30 @@ def run_head(
             role: [r for r in rs if r["image"] not in absent]
             for role, rs in records.items()
         }
+    warm, warm_record = None, {}
+    if init_head is not None:
+        if arm != DEFAULT_ARM:
+            raise CacheError(
+                f"--init-head is for the {DEFAULT_ARM!r} control and the stem arm, "
+                f"not {arm!r}"
+            )
+        warm, warm_record = load_warm_start(
+            init_head,
+            fold=fold,
+            percent=percent,
+            camera=camera,
+            seed=seed,
+            recipe=recipe,
+            cache_settings=cache.settings["settings"],
+            manifests=list(paths.values()),
+            scratch=scratch,
+        )
     config = {
         "camera": camera,
         "fold": fold,
         "percent": percent,
+        "input_handling": arm,
+        **({"warm_start": warm_record} if warm_record else {}),
         "recipe": asdict(recipe),
         "cache_dir": str(cache_dir),
         "cache": cache.settings,
@@ -632,32 +775,35 @@ def run_head(
         "pixel shuffle; CenterNet focal + L1 offset + L1 log size",
     }
     directory = run_module.start_run(
-        run_name or default_run_name(cache_dir, camera, fold, percent, seed),
+        run_name
+        or default_run_name(cache_dir, camera, fold, percent, seed, warm is not None),
         config,
         seed,
         device=str(device),
         scratch=scratch,
         argv=argv,
         repo=repo,
-        inputs=[*paths.values(), cache_dir / "cache.json", cache_dir / "index.jsonl"],
+        inputs=[
+            *paths.values(),
+            cache_dir / "cache.json",
+            cache_dir / "index.jsonl",
+            *([init_head / "head.pt"] if init_head else []),
+        ],
         fold=fold,
         view=camera,
         manifests=manifests,
         data_root=data_root,
     )
     try:
-        torch.manual_seed(seed)
         splits = {
             role: load_split_features(
                 cache_dir, rs, cache.entries, camera, recipe.upsample
             )
             for role, rs in records.items()
         }
-        head = CentreHead(
-            dim=splits["train"].features.shape[-1],
-            hidden=recipe.hidden,
-            upsample=recipe.upsample,
-        )
+        head = build_head(seed, splits["train"].features.shape[-1], recipe)
+        if warm is not None:
+            head.load_state_dict(warm)
 
         def validate() -> float:
             return evaluate(

@@ -41,6 +41,7 @@ import numpy as np
 from PIL import Image
 
 from aerial_search.models.backbone import Extraction
+from aerial_search.models.thermal_input import DEFAULT_ARM, input_transform
 
 # A resumed run recomputes a sample on the same device with the same weights,
 # which gives the same numbers up to the last bit of a float16. The root-mean-
@@ -84,9 +85,14 @@ class CacheSettings:
     # bumped in backbone.PREPROCESSING_VERSION when what a feature file holds
     # changes; a cache made under another version is not interchangeable
     preprocessing_version: int
+    # how a thermal frame reaches the backbone (#68): "replicate" (the frame
+    # as stored) or "equalise" (histogram equalisation first). A cache made
+    # before this field existed holds "replicate" features.
+    input_handling: str = DEFAULT_ARM
 
     def name(self) -> str:
-        return f"{self.model}-{self.token_budget}tok"
+        suffix = "" if self.input_handling == DEFAULT_ARM else f"-{self.input_handling}"
+        return f"{self.model}-{self.token_budget}tok{suffix}"
 
 
 @dataclass(frozen=True)
@@ -212,6 +218,8 @@ def check_settings(cache_dir: Path, settings: CacheSettings) -> None:
             stacklevel=2,
         )
     stored, wanted = record["settings"], asdict(settings)
+    # a cache written before `input_handling` existed is the replicate cache
+    stored = {"input_handling": DEFAULT_ARM, **stored}
     differ = sorted(k for k in wanted if stored.get(k) != wanted[k])
     if differ:
         raise CacheError(
@@ -473,12 +481,17 @@ def build_cache(
     return summary
 
 
-def missing_frames(cache_dir: Path, manifests: Path) -> dict[str, list[str]]:
-    """Per camera, the images the manifests reference that the index lacks."""
+def missing_frames(
+    cache_dir: Path, manifests: Path, cameras: Sequence[str] = ("rgb", "thermal")
+) -> dict[str, list[str]]:
+    """Per camera, the images the manifests reference that the index lacks.
+
+    `cameras` narrows the check, for a cache that holds one camera only (the
+    equalised thermal cache, #68)."""
     pinned: Mapping[str, str] = {}
     done = read_index(cache_dir)
     missing: dict[str, list[str]] = {}
-    for camera in ("rgb", "thermal"):
+    for camera in cameras:
         frames = select_frames(
             manifests / "all_pairs.jsonl", camera, pinned, folds=manifests / "folds"
         )
@@ -504,9 +517,10 @@ def cache_features(
     scratch: bool,
     session: str | None = None,
     repo: Path | None = None,
-    load_extractor: Callable[[int, int], Extractor] | None = None,
+    load_extractor: Callable[..., Extractor] | None = None,
     weights: Callable[[str, str], dict[str, str]] | None = None,
     argv: list[str] | None = None,
+    input_handling: str = DEFAULT_ARM,
 ) -> Summary:
     """One session of the feature cache: one camera, optionally some collections.
 
@@ -523,6 +537,7 @@ def cache_features(
 
     if limit and not scratch:
         raise CacheError("--limit builds a partial cache; use it with --scratch only")
+    transform = input_transform(input_handling, camera)  # raises for rgb + equalise
     spec = backbone.SPECS[model]
     settings = CacheSettings(
         model=model,
@@ -533,6 +548,7 @@ def cache_features(
         pooling=pooling,
         dtype="float16",
         preprocessing_version=backbone.PREPROCESSING_VERSION,
+        input_handling=input_handling,
     )
     top = "scratch-features" if scratch else "features"
     outputs = run_module.outputs_dir(scratch=scratch, repo=repo)
@@ -563,7 +579,13 @@ def cache_features(
             "verify": verify,
             "images": len(frames),
             "cache_dir": str(cache_dir),
-            "preprocessing": "image.convert('RGB'), then the NaFlex processor at "
+            "preprocessing": (
+                "histogram equalisation of the grey values (PIL ImageOps."
+                "equalize), then "
+                if input_handling == "equalise"
+                else ""
+            )
+            + "image.convert('RGB'), then the NaFlex processor at "
             "max_num_patches=token_budget; a one-channel thermal frame becomes "
             "three identical channels; features are the last hidden state",
         }
@@ -583,7 +605,9 @@ def cache_features(
             if directory.parent.parent.resolve() != cache_dir.resolve():
                 raise CacheError(f"run {directory} is not inside the cache {cache_dir}")
             record = json.loads((directory / "run.json").read_text())
-            extractor = (load_extractor or _load_naflex(model))(token_budget, pooling)
+            extractor = (load_extractor or _load_naflex(model))(
+                token_budget, pooling, transform
+            )
             summary = build_cache(
                 cache_dir,
                 settings,
@@ -606,8 +630,8 @@ def cache_features(
         return summary
 
 
-def _load_naflex(model: str) -> Callable[[int, int], Extractor]:
-    def load(token_budget: int, pooling: int) -> Extractor:
+def _load_naflex(model: str) -> Callable[..., Extractor]:
+    def load(token_budget: int, pooling: int, transform=None) -> Extractor:
         from transformers import AutoImageProcessor
 
         from aerial_search.models import backbone
@@ -619,6 +643,7 @@ def _load_naflex(model: str) -> Callable[[int, int], Extractor]:
             AutoImageProcessor.from_pretrained(spec.repo, revision=spec.revision),
             token_budget,
             pooling,
+            transform,
         )
 
     return load

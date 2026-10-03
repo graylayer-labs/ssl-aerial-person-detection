@@ -208,6 +208,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     check_cache.add_argument("cache", type=Path, help="a features/<model>-<n>tok dir")
     check_cache.add_argument("manifests", type=Path, help="output of prepare")
+    check_cache.add_argument(
+        "--camera",
+        choices=["rgb", "thermal"],
+        help="check this camera only, for a cache that holds one (default: both)",
+    )
 
     cache.add_argument("model", choices=["siglip2-base-naflex"])
     cache.add_argument("--camera", choices=["rgb", "thermal"], required=True)
@@ -226,6 +231,13 @@ def build_parser() -> argparse.ArgumentParser:
         "1/2 and 2/2 to halve a session",
     )
     cache.add_argument("--token-budget", type=int, default=1024)
+    cache.add_argument(
+        "--thermal-input",
+        choices=["replicate", "equalise"],
+        default="replicate",
+        help="how thermal frames reach the backbone (#68); equalise builds a "
+        "separate cache, outputs/features/<model>-<n>tok-equalise; thermal only",
+    )
     cache.add_argument(
         "--pooling", type=int, default=2, help="k of a k x k average pool; 1 is none"
     )
@@ -285,6 +297,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--manifests", type=Path, default=Path("data/manifests/wisard-full")
     )
     from aerial_search.experiments.head_experiment import Recipe
+    from aerial_search.experiments.stem_experiment import StemRecipe
 
     defaults = Recipe()
     for name in ("steps", "batch_size", "eval_every", "upsample", "hidden", "top_k"):
@@ -293,6 +306,35 @@ def build_parser() -> argparse.ArgumentParser:
     head.add_argument("--learning-rate", type=float, default=defaults.learning_rate)
     head.add_argument("--weight-decay", type=float, default=defaults.weight_decay)
     head.add_argument("--device", help="default: mps if available, else cpu")
+    head.add_argument(
+        "--input-handling",
+        choices=["replicate", "equalise", "stem"],
+        help="thermal input arm (#68). replicate and equalise are read from "
+        "--cache and this only checks it; stem trains a learned input stem "
+        "before the frozen backbone and takes its geometry from the replicate "
+        "--cache (thermal only; slow: see docs/thermal-input-ablation.md)",
+    )
+    head.add_argument(
+        "--init-head",
+        type=Path,
+        metavar="RUN_DIR",
+        help="warm start (#68): begin from the trained head of this finished "
+        "arm-A run (same fold, percent, camera and seed; it must have saved "
+        "head.pt). Use it with --steps 120 for the stem arm and for its matched "
+        "control, so the two differ only in the stem",
+    )
+    stem_defaults = StemRecipe()
+    for name in ("micro_batch", "eval_batch", "stem_hidden", "validation_stride"):
+        flag = "--" + name.replace("_", "-")
+        head.add_argument(
+            flag, type=int, default=getattr(stem_defaults, name), help="stem arm only"
+        )
+    head.add_argument(
+        "--loss-scale",
+        type=float,
+        default=stem_defaults.loss_scale,
+        help="stem arm only",
+    )
     _add_fold_flag(head)
     _add_run_flags(head)
 
@@ -304,7 +346,22 @@ def build_parser() -> argparse.ArgumentParser:
     table.add_argument(
         "runs",
         type=Path,
-        help="e.g. outputs/detection-head/siglip2-base-naflex-1024tok",
+        nargs="+",
+        help="e.g. outputs/detection-head/siglip2-base-naflex-1024tok; with "
+        "--ablation, one directory per input arm",
+    )
+    table.add_argument(
+        "--ablation",
+        action="store_true",
+        help="the thermal input ablation (#68): one directory per arm, one table "
+        "per camera and fraction with a row per arm",
+    )
+    table.add_argument("--camera", choices=["rgb", "thermal"], help="with --ablation")
+    table.add_argument(
+        "--percent",
+        action="append",
+        choices=[str(p) for p in PERCENTS],
+        help="with --ablation: only this label fraction (repeat for several)",
     )
     table.add_argument("--json", type=Path, help="also write the summary as JSON")
 
@@ -420,7 +477,8 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "check-cache":
         from aerial_search.experiments import feature_cache
 
-        missing = feature_cache.missing_frames(args.cache, args.manifests)
+        cameras = (args.camera,) if args.camera else ("rgb", "thermal")
+        missing = feature_cache.missing_frames(args.cache, args.manifests, cameras)
         for camera, paths in missing.items():
             print(f"{camera}: {len(paths)} missing")
             for path in paths:
@@ -447,8 +505,9 @@ def main(argv: list[str] | None = None) -> None:
                 verify=args.verify,
                 scratch=args.scratch,
                 session=args.run_name,
+                input_handling=args.thermal_input,
             )
-        except (feature_cache.CacheError, run.ProvenanceError) as error:
+        except (feature_cache.CacheError, ValueError, run.ProvenanceError) as error:
             raise SystemExit(f"refusing to cache: {error}") from error
         print(json.dumps(asdict(summary), indent=2))
         return
@@ -463,7 +522,31 @@ def main(argv: list[str] | None = None) -> None:
         names = ("steps", "batch_size", "learning_rate", "weight_decay", "eval_every")
         names += ("upsample", "hidden", "top_k")
         recipe = head_experiment.Recipe(**{n: getattr(args, n) for n in names})
+        stem = args.input_handling == "stem"
         try:
+            if stem:
+                from aerial_search.experiments import stem_experiment
+
+                extra = ("micro_batch", "eval_batch", "stem_hidden", "loss_scale")
+                extra += ("validation_stride",)
+                summary = stem_experiment.run_stem_head(
+                    cache_dir=args.cache,
+                    manifests=args.manifests,
+                    data_root=args.data_root,
+                    fold=args.fold,
+                    camera=args.camera,
+                    percent=args.percent,
+                    seed=args.seed,
+                    recipe=stem_experiment.StemRecipe(
+                        **asdict(recipe), **{n: getattr(args, n) for n in extra}
+                    ),
+                    scratch=args.scratch,
+                    run_name=args.run_name,
+                    device=torch.device(args.device) if args.device else get_device(),
+                    init_head=args.init_head,
+                )
+                print(json.dumps(summary, indent=2))
+                return
             summary = head_experiment.run_head(
                 cache_dir=args.cache,
                 manifests=args.manifests,
@@ -476,11 +559,14 @@ def main(argv: list[str] | None = None) -> None:
                 scratch=args.scratch,
                 run_name=args.run_name,
                 device=torch.device(args.device) if args.device else get_device(),
+                input_handling=args.input_handling,
+                init_head=args.init_head,
             )
         except (
             feature_cache.CacheError,
             head_experiment.LeakError,
             run.ProvenanceError,
+            ValueError,
         ) as error:
             raise SystemExit(f"refusing to start: {error}") from error
         print(json.dumps(summary, indent=2))
@@ -490,7 +576,18 @@ def main(argv: list[str] | None = None) -> None:
         from aerial_search.experiments import head_table
 
         try:
-            summary = head_table.summarise(head_table.collect(args.runs))
+            if args.ablation:
+                by_arm = head_table.collect_arms(
+                    args.runs, camera=args.camera, percents=args.percent
+                )
+                summary = head_table.summarise_arms(by_arm)
+                print(head_table.markdown_arms(summary, head_table.arm_notes(by_arm)))
+                if args.json:
+                    args.json.write_text(json.dumps(summary, indent=2) + "\n")
+                return
+            if len(args.runs) != 1:
+                raise head_table.TableError("several directories need --ablation")
+            summary = head_table.summarise(head_table.collect(args.runs[0]))
         except head_table.TableError as error:
             raise SystemExit(f"refusing to tabulate: {error}") from error
         print(head_table.markdown(summary))

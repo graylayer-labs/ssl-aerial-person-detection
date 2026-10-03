@@ -283,11 +283,18 @@ def test_only_frames_the_manifest_lists_as_labelled_become_negatives(tmp_path):
 # --- the cache a run reads ---------------------------------------------------
 
 
-def fake_cache(tmp_path: Path, records: list[dict], scratch: bool = False) -> Path:
+def fake_cache(
+    tmp_path: Path,
+    records: list[dict],
+    scratch: bool = False,
+    settings: dict | None = None,
+) -> Path:
     top = "scratch-features" if scratch else "features"
     cache = tmp_path / "outputs" / top / "m-1024tok"
     (cache / "runs" / "s1").mkdir(parents=True)
-    (cache / "cache.json").write_text(json.dumps({"settings": {"model": "m"}}))
+    (cache / "cache.json").write_text(
+        json.dumps({"settings": {"model": "m", **(settings or {})}})
+    )
     (cache / "runs" / "s1" / "run.json").write_text(
         json.dumps({"scratch": scratch, "status": "completed"})
     )
@@ -361,7 +368,8 @@ def test_a_cache_entry_whose_image_size_disagrees_is_refused(tmp_path):
 # --- one run, end to end, on a fake cache -----------------------------------
 
 
-def test_a_scratch_run_trains_selects_and_writes_its_report(tmp_path):
+def scratch_setup(tmp_path: Path, settings: dict | None = None) -> tuple[Path, str]:
+    """Fold manifests and a fake scratch cache for a tiny end-to-end run."""
     fold, other = "220109_Baker", "210417_MtErie"
     rng = np.random.default_rng(1)
 
@@ -378,9 +386,14 @@ def test_a_scratch_run_trains_selects_and_writes_its_report(tmp_path):
     write(view / "train_100pct.jsonl", train)
     write(view / "validation.jsonl", validation)
     write(view / "test.jsonl", test)
-    cache = fake_cache(tmp_path, train + validation + test, scratch=True)
+    cache = fake_cache(
+        tmp_path, train + validation + test, scratch=True, settings=settings
+    )
+    return cache, fold
 
-    summary = he.run_head(
+
+def tiny_run(tmp_path: Path, cache: Path, fold: str, run_name="head-test", **kw):
+    return he.run_head(
         cache_dir=cache,
         manifests=tmp_path / "manifests",
         data_root=tmp_path / "raw",
@@ -390,11 +403,18 @@ def test_a_scratch_run_trains_selects_and_writes_its_report(tmp_path):
         seed=7,
         recipe=he.Recipe(steps=4, batch_size=2, eval_every=2, hidden=8),
         scratch=True,
-        run_name="head-test",
+        run_name=run_name,
         device=torch.device("cpu"),
         repo=tmp_path / "repo",
         argv=["aerial-search", "train-head"],
+        **kw,
     )
+
+
+def test_a_scratch_run_trains_selects_and_writes_its_report(tmp_path):
+    cache, fold = scratch_setup(tmp_path)
+
+    summary = tiny_run(tmp_path, cache, fold)
 
     directory = tmp_path / "repo" / "outputs" / "scratch-head-test"
     record = json.loads((directory / "run.json").read_text())
@@ -415,6 +435,96 @@ def test_a_scratch_run_trains_selects_and_writes_its_report(tmp_path):
     assert training["test_predictions_tied"] == tied == summary["test_predictions_tied"]
 
 
+def run_record(tmp_path: Path) -> dict:
+    path = tmp_path / "repo" / "outputs" / "scratch-head-test" / "run.json"
+    return json.loads(path.read_text())
+
+
+def test_a_run_records_which_input_arm_its_features_came_from(tmp_path):
+    cache, fold = scratch_setup(tmp_path, {"input_handling": "equalise"})
+
+    tiny_run(tmp_path, cache, fold, input_handling="equalise")
+
+    assert run_record(tmp_path)["config"]["input_handling"] == "equalise"
+
+
+def test_a_cache_without_the_field_is_arm_replicate(tmp_path):
+    cache, fold = scratch_setup(tmp_path)  # as the #66 cache is
+
+    tiny_run(tmp_path, cache, fold)
+
+    assert run_record(tmp_path)["config"]["input_handling"] == "replicate"
+
+
+def test_asking_for_an_arm_the_cache_was_not_made_with_is_refused(tmp_path):
+    cache, fold = scratch_setup(tmp_path, {"input_handling": "equalise"})
+
+    with pytest.raises(CacheError, match="equalise"):
+        tiny_run(tmp_path, cache, fold, input_handling="replicate")
+    assert not (tmp_path / "repo" / "outputs" / "scratch-head-test").exists()
+
+
+def test_run_head_starts_from_the_head_a_seed_builds(tmp_path, monkeypatch):
+    seen = []
+
+    def capture(head, *args, **kwargs):
+        seen.append({k: v.clone() for k, v in head.state_dict().items()})
+        raise StopIteration
+
+    monkeypatch.setattr(he, "train_head", capture)
+    cache, fold = scratch_setup(tmp_path)
+
+    with pytest.raises(StopIteration):
+        tiny_run(tmp_path, cache, fold)
+
+    dim = seen[0]["norm.weight"].shape[0]
+    torch.manual_seed(7)
+    reference = CentreHead(dim=dim, hidden=8, upsample=4).state_dict()
+    assert all(torch.equal(seen[0][k], reference[k]) for k in reference)
+
+
+def test_a_warm_run_starts_from_the_saved_head_and_records_it(tmp_path, monkeypatch):
+    cache, fold = scratch_setup(tmp_path)
+    tiny_run(tmp_path, cache, fold)  # arm A, cold
+    cold = tmp_path / "repo" / "outputs" / "scratch-head-test"
+    saved = torch.load(cold / "head.pt")
+    seen = []
+
+    def capture(head, *args, **kwargs):
+        seen.append({k: v.clone() for k, v in head.state_dict().items()})
+        raise StopIteration
+
+    monkeypatch.setattr(he, "train_head", capture)
+    with pytest.raises(StopIteration):
+        tiny_run(tmp_path, cache, fold, init_head=cold, run_name="warm")
+
+    assert all(torch.equal(seen[0][k], saved[k]) for k in saved)
+    monkeypatch.undo()
+    tiny_run(tmp_path, cache, fold, init_head=cold, run_name="warm2")
+    record = json.loads(
+        (tmp_path / "repo" / "outputs" / "scratch-warm2" / "run.json").read_text()
+    )
+    assert record["config"]["warm_start"]["init_head"] == str(cold)
+    assert len(record["config"]["warm_start"]["run_json_sha256"]) == 64
+
+
+def test_a_warm_start_is_refused_from_a_warm_or_other_seed_run(tmp_path):
+    cache, fold = scratch_setup(tmp_path)
+    tiny_run(tmp_path, cache, fold)
+    cold = tmp_path / "repo" / "outputs" / "scratch-head-test"
+    path = cold / "run.json"
+    record = json.loads(path.read_text())
+
+    path.write_text(json.dumps({**record, "seed": 1}))
+    with pytest.raises(CacheError, match="seed"):
+        tiny_run(tmp_path, cache, fold, init_head=cold, run_name="w")
+
+    warm = {**record["config"], "warm_start": {"init_head": "x"}}
+    path.write_text(json.dumps({**record, "config": warm}))
+    with pytest.raises(CacheError, match="cold"):
+        tiny_run(tmp_path, cache, fold, init_head=cold, run_name="w")
+
+
 # --- the results table ---------------------------------------------------------
 
 
@@ -428,6 +538,7 @@ def fake_run(
     recipe=None,
     cache_hash="c0",
     tiny=True,
+    arm=None,
     **record,
 ) -> None:
     directory = root / f"{camera}-{fold}-{percent}"
@@ -437,6 +548,7 @@ def fake_run(
         "fold": fold,
         "percent": percent,
         "recipe": {**asdict(he.Recipe()), **(recipe or {})},
+        **({} if arm is None else {"input_handling": arm}),
     }
     base = {
         "status": "completed",
@@ -544,3 +656,196 @@ def test_the_table_refuses_two_runs_of_the_same_cell(tmp_path):
     fake_run(tmp_path / "two", "rgb", "A", 100, 0.4, 0.3)
     with pytest.raises(head_table.TableError, match="twice"):
         head_table.summarise(head_table.collect(tmp_path))
+
+
+# --- the input-arm ablation table (#68) ---------------------------------------
+
+
+def arm_dirs(tmp_path: Path, scores: dict[str, dict[str, tuple[float, float]]]):
+    """One directory per arm; scores[arm][fold] = (ap25, ap50), thermal at 10%."""
+    roots = []
+    for arm, folds in scores.items():
+        root = tmp_path / arm
+        for fold, (a25, a50) in folds.items():
+            fake_run(root, "thermal", fold, 10, a25, a50, arm=arm, cache_hash=arm)
+        roots.append(root)
+    return roots
+
+
+def test_a_run_without_an_arm_is_the_replicate_arm(tmp_path):
+    from aerial_search.experiments import head_table
+
+    fake_run(tmp_path, "thermal", "A", 10, 0.2, 0.1)  # a #66 run
+
+    assert head_table.collect(tmp_path)[0]["arm"] == "replicate"
+
+
+def test_the_ablation_table_has_each_arm_per_fold_with_spread_and_the_paired_change(
+    tmp_path,
+):
+    from aerial_search.experiments import head_table
+
+    roots = arm_dirs(
+        tmp_path,
+        {
+            "replicate": {"A": (0.2, 0.1), "B": (0.4, 0.2)},
+            "equalise": {"A": (0.3, 0.1), "B": (0.5, 0.3)},
+        },
+    )
+
+    by_arm = head_table.collect_arms(roots, camera="thermal", percents=["10"])
+    summary = head_table.summarise_arms(by_arm)
+    entry = summary["thermal"]["10"]
+
+    assert entry["replicate"]["mean"]["ap_iou25"] == pytest.approx(0.3)
+    assert entry["equalise"]["mean"]["ap_iou25"] == pytest.approx(0.4)
+    assert entry["equalise"]["delta"]["ap_iou25"][0] == pytest.approx(0.1)
+    assert entry["equalise"]["delta"]["ap_iou25"][1] == pytest.approx(0.0, abs=1e-12)
+    assert "delta" not in entry["replicate"]
+    text = head_table.markdown_arms(summary, head_table.arm_notes(by_arm))
+    assert "| replicate |" in text and "| equalise |" in text
+    assert "0.200 / 0.100" in text and "0.500 / 0.300" in text  # per fold
+    assert "0.400 ± 0.141" in text  # mean and spread of ap_iou25
+
+
+def test_the_ablation_needs_the_control_arm(tmp_path):
+    from aerial_search.experiments import head_table
+
+    roots = arm_dirs(tmp_path, {"equalise": {"A": (0.3, 0.1)}})
+    by_arm = head_table.collect_arms(roots, camera="thermal", percents=["10"])
+
+    with pytest.raises(head_table.TableError, match="replicate"):
+        head_table.summarise_arms(by_arm)
+
+
+def test_one_directory_may_hold_one_arm_and_an_arm_may_not_appear_twice(tmp_path):
+    from aerial_search.experiments import head_table
+
+    fake_run(tmp_path / "x", "thermal", "A", 10, 0.2, 0.1, arm="replicate")
+    fake_run(tmp_path / "x", "thermal", "B", 10, 0.2, 0.1, arm="equalise")
+    with pytest.raises(head_table.TableError, match="one arm"):
+        head_table.collect_arms([tmp_path / "x"], camera="thermal", percents=["10"])
+
+    one = arm_dirs(tmp_path / "one", {"replicate": {"A": (0.2, 0.1)}})
+    two = arm_dirs(tmp_path / "two", {"replicate": {"A": (0.4, 0.3)}})
+    with pytest.raises(head_table.TableError, match="twice"):
+        head_table.collect_arms([*one, *two], camera="thermal", percents=["10"])
+
+
+def test_arms_must_share_a_seed_but_a_recipe_difference_is_stated_not_hidden(tmp_path):
+    from aerial_search.experiments import head_table
+
+    fake_run(tmp_path / "a", "thermal", "A", 10, 0.2, 0.1, arm="replicate")
+    fake_run(
+        tmp_path / "c",
+        "thermal",
+        "A",
+        10,
+        0.3,
+        0.1,
+        arm="stem",
+        recipe={"steps": 300},
+        cache_hash="geometry",
+    )
+    by_arm = head_table.collect_arms(
+        [tmp_path / "a", tmp_path / "c"], camera="thermal", percents=["10"]
+    )
+
+    notes = head_table.arm_notes(by_arm)
+
+    assert any("stem" in n and "recipe.steps" in n and "300" in n for n in notes)
+    assert "recipes differ" in head_table.markdown_arms(
+        head_table.summarise_arms(by_arm), notes
+    )
+    fake_run(tmp_path / "d", "thermal", "A", 10, 0.3, 0.1, arm="equalise", seed=9)
+    with pytest.raises(head_table.TableError, match="seed"):
+        head_table.collect_arms(
+            [tmp_path / "a", tmp_path / "d"], camera="thermal", percents=["10"]
+        )
+
+
+def test_warm_arms_are_compared_with_the_warm_control_not_the_cold_arm(tmp_path):
+    from aerial_search.experiments import head_table
+
+    for arm, a25 in (("replicate", 0.5), ("replicate-warm", 0.2), ("stem-warm", 0.3)):
+        root = tmp_path / arm
+        fake_run(root, "thermal", "A", 10, a25, 0.1, arm=arm.split("-")[0])
+        if arm.endswith("warm"):
+            path = root / "thermal-A-10" / "run.json"
+            record = json.loads(path.read_text())
+            record["config"]["warm_start"] = {"init_head": "h"}
+            path.write_text(json.dumps(record))
+
+    by_arm = head_table.collect_arms(
+        [tmp_path / a for a in ("replicate", "replicate-warm", "stem-warm")],
+        camera="thermal",
+        percents=["10"],
+    )
+    entry = head_table.summarise_arms(by_arm)["thermal"]["10"]
+
+    assert set(entry) == {"replicate", "replicate-warm", "stem-warm"}
+    assert entry["stem-warm"]["delta"]["ap_iou25"][0] == pytest.approx(0.1)
+    assert "delta" not in entry["replicate-warm"]
+    assert "delta" not in entry["replicate"]
+
+
+def test_an_arm_whose_cache_settings_differ_is_noted(tmp_path):
+    from aerial_search.experiments import head_table
+
+    base = {"model": "m", "pooling": 2, "token_budget": 1024}
+    for arm, settings in (
+        ("replicate", {**base}),
+        ("equalise", {**base, "input_handling": "equalise", "pooling": 1}),
+    ):
+        fake_run(tmp_path / arm, "thermal", "A", 10, 0.2, 0.1, arm=arm)
+        path = tmp_path / arm / "thermal-A-10" / "run.json"
+        record = json.loads(path.read_text())
+        record["config"]["cache"] = {"settings": settings}
+        path.write_text(json.dumps(record))
+    by_arm = head_table.collect_arms(
+        [tmp_path / "replicate", tmp_path / "equalise"],
+        camera="thermal",
+        percents=["10"],
+    )
+
+    notes = head_table.arm_notes(by_arm)
+
+    assert any("pooling" in n for n in notes)
+    assert not any("input_handling" in n for n in notes)
+
+
+def test_the_ablation_warns_when_arms_come_from_different_commits(tmp_path):
+    from aerial_search.experiments import head_table
+
+    fake_run(tmp_path / "a", "thermal", "A", 10, 0.2, 0.1, arm="replicate")
+    fake_run(tmp_path / "b", "thermal", "A", 10, 0.3, 0.1, arm="equalise", commit="def")
+    by_arm = head_table.collect_arms(
+        [tmp_path / "a", tmp_path / "b"], camera="thermal", percents=["10"]
+    )
+
+    with pytest.warns(UserWarning, match="2 commits"):
+        head_table.summarise_arms(by_arm)
+
+
+def test_the_plain_table_refuses_warm_and_non_replicate_runs(tmp_path):
+    from aerial_search.experiments import head_table
+
+    fake_run(tmp_path / "w", "thermal", "A", 10, 0.2, 0.1)
+    path = tmp_path / "w" / "thermal-A-10" / "run.json"
+    record = json.loads(path.read_text())
+    record["config"]["warm_start"] = {"init_head": "h"}
+    path.write_text(json.dumps(record))
+    with pytest.raises(head_table.TableError, match="--ablation"):
+        head_table.collect(tmp_path / "w")
+
+    fake_run(tmp_path / "e", "thermal", "A", 10, 0.2, 0.1, arm="equalise")
+    with pytest.raises(head_table.TableError, match="--ablation"):
+        head_table.collect(tmp_path / "e")
+    assert head_table.collect(tmp_path / "e", ablation=True)[0]["arm"] == "equalise"
+
+
+def test_a_warm_start_is_refused_for_the_equalise_arm(tmp_path):
+    cache, fold = scratch_setup(tmp_path, {"input_handling": "equalise"})
+
+    with pytest.raises(CacheError, match="control and the stem arm"):
+        tiny_run(tmp_path, cache, fold, init_head=tmp_path)
