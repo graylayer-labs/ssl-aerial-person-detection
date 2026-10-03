@@ -141,7 +141,8 @@ def build_model(
             ] * len(anchor_sizes):
                 raise ValueError(
                     f"{arch}: {generator.num_anchors_per_location()} anchors per "
-                    f"location, but the RPN head predicts {head.cls_logits.out_channels}"
+                    "location, but the RPN head predicts "
+                    f"{head.cls_logits.out_channels}"
                 )
             model.rpn.anchor_generator = generator
         from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
