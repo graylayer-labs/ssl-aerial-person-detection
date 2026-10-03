@@ -311,6 +311,25 @@ def load_split(path: Path, *, fold: str, role: str) -> list[dict]:
     return records
 
 
+def select_records(
+    manifests: Path, fold: str, camera: str, percent: int
+) -> tuple[dict[str, Path], dict[str, list[dict]]]:
+    """The manifest files and records of one run's train, validation and test.
+
+    The one place that decides which labelled frames a run sees at a given
+    fold, camera and fraction. The supervised baseline (#67) calls it too, so
+    it and the head are trained, selected and scored on the same frames.
+    """
+    view = view_dir(manifests / "folds", fold, camera)
+    paths = {
+        "train": view / train_file(percent),
+        "validation": view / VALIDATION,
+        "test": view / TEST,
+    }
+    records = {role: load_split(p, fold=fold, role=role) for role, p in paths.items()}
+    return paths, records
+
+
 # --- the cache -----------------------------------------------------------------
 
 
@@ -713,13 +732,7 @@ def run_head(
     from aerial_search import run as run_module
     from aerial_search.data import checksums
 
-    view = view_dir(manifests / "folds", fold, camera)
-    paths = {
-        "train": view / train_file(percent),
-        "validation": view / VALIDATION,
-        "test": view / TEST,
-    }
-    records = {role: load_split(p, fold=fold, role=role) for role, p in paths.items()}
+    paths, records = select_records(manifests, fold, camera, percent)
     pinned = None if scratch else {e.path: e.sha256 for e in checksums.committed_list()}
     cache = check_cache(
         cache_dir,

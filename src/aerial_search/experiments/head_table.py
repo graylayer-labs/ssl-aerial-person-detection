@@ -31,6 +31,24 @@ SELECTION_CAVEAT = (
 )
 
 
+def compare_caveat(runs_by_method: dict[str, list[dict[str, Any]]]) -> str:
+    """SELECTION_CAVEAT, plus how many validation frames each method that
+    subsamples them (a recipe with `val_frames`) picked its step on."""
+    notes = []
+    for method, runs in runs_by_method.items():
+        counts = sorted(
+            {r["recipe"]["val_frames"] for r in runs if "val_frames" in r["recipe"]}
+        )
+        if counts:
+            shown = ", ".join("all" if c == 0 else str(c) for c in counts)
+            notes.append(
+                f"{method} picked its step on {shown} evenly spaced validation frames"
+            )
+    if not notes:
+        return SELECTION_CAVEAT
+    return SELECTION_CAVEAT + " But " + "; ".join(notes) + " (the head uses all)."
+
+
 class TableError(Exception):
     """A run cannot be quoted, or two runs claim the same cell."""
 
@@ -87,7 +105,9 @@ def collect(root: Path, *, ablation: bool = False) -> list[dict[str, Any]]:
                 "arm": config.get("input_handling", "replicate")
                 + ("-warm" if config.get("warm_start") else ""),
                 "commit": record.get("commit"),
+                "recipe": config.get("recipe", {}),
                 "made_with": _made_with(record),
+                "manifests": _manifests(record),
                 "overall": _scores(metrics["overall"]),
                 "by_size": {k: _scores(m) for k, m in metrics["by_size"].items()},
             }
@@ -102,6 +122,50 @@ def collect(root: Path, *, ablation: bool = False) -> list[dict[str, Any]]:
                     "holds runs made the same way"
                 )
     return runs
+
+
+def _manifests(record: dict[str, Any]) -> dict[str, str]:
+    """SHA-256 of each manifest a run read, keyed by `<fold>/<camera>/<file>`."""
+    return {
+        "/".join(i["path"].split("/")[-3:]): i["sha256"]
+        for i in record.get("inputs", [])
+        if i["path"].endswith(".jsonl")
+    }
+
+
+SPLIT_FILES = ("validation.jsonl", "test.jsonl")
+
+
+def check_same_frames(runs_by_method: dict[str, list[dict[str, Any]]]) -> None:
+    """Refuse a comparison unless, in every cell two methods share, both read
+    the train, validation and test manifests with identical bytes (so the same
+    frames, labels included), and unless every method has every cell."""
+    cells: dict[str, dict[tuple[str, str, str], dict[str, Any]]] = {}
+    for method, runs in runs_by_method.items():
+        cells[method] = {(r["camera"], r["fold"], r["percent"]): r for r in runs}
+    every = set().union(*(set(c) for c in cells.values())) if cells else set()
+    for method, own in cells.items():
+        missing = sorted(every - set(own))
+        if missing:
+            listed = ", ".join("/".join(c) for c in missing)
+            raise TableError(f"{method} has no run for: {listed}")
+    methods = list(cells)
+    for cell in sorted(every):
+        first = cells[methods[0]][cell]
+        for method in methods[1:]:
+            run = cells[method][cell]
+            wanted = [
+                f"{cell[1]}/{cell[0]}/{f}"
+                for f in (f"train_{cell[2]}pct.jsonl", *SPLIT_FILES)
+            ]
+            for name in wanted:
+                a, b = first["manifests"].get(name), run["manifests"].get(name)
+                if a is None or b is None or a != b:
+                    raise TableError(
+                        f"{name} is {'missing' if None in (a, b) else 'different'}"
+                        f" between {methods[0]} ({first['name']}) and {method} "
+                        f"({run['name']}): they did not see the same frames"
+                    )
 
 
 def _made_with(record: dict[str, Any]) -> dict[str, Any]:
@@ -406,4 +470,45 @@ def markdown_arms(summary: dict[str, Any], notes: Sequence[str] = ()) -> str:
     lines += [SELECTION_CAVEAT, ""]
     if notes:
         lines += ["The arms' recipes differ:", "", *(f"- {n}" for n in notes), ""]
+    return "\n".join(lines)
+
+
+def markdown_compare(
+    summaries: dict[str, dict[str, Any]], caveat: str = SELECTION_CAVEAT
+) -> str:
+    """One table per camera: a row per label fraction and method, a column per
+    fold, then mean and sd over folds. `summaries` maps a method name to its
+    `summarise` output; methods are listed in the order given."""
+    cameras = sorted({c for s in summaries.values() for c in s})
+    lines: list[str] = []
+    for camera in cameras:
+        by_method = {m: s[camera] for m, s in summaries.items() if camera in s}
+        percents = sorted({p for e in by_method.values() for p in e}, key=int)
+        folds = sorted(
+            {f for e in by_method.values() for x in e.values() for f in x["folds"]}
+        )
+        lines += [
+            f"### {camera}: test ap_iou25 / ap_iou50 per fold, "
+            "mean ± sd over folds, by method",
+            "",
+            "| labels | method | "
+            + " | ".join(folds)
+            + " | ap_iou25 | ap_iou50 | recall @0.1 FPPI | recall @1 FPPI | folds |",
+            "|---" * (len(folds) + 7) + "|",
+        ]
+        for percent in percents:
+            for method, e_by_percent in by_method.items():
+                e = e_by_percent.get(percent)
+                if e is None:
+                    continue
+                cells = [
+                    " / ".join(_fmt(e["folds"][f][m]) for m in METRICS[:2])
+                    if f in e["folds"]
+                    else "-"
+                    for f in folds
+                ]
+                stats = [_pm(e["mean"][m], e["std"][m]) for m in METRICS]
+                row = [*cells, *stats, str(e["n_folds"])]
+                lines.append(f"| {percent}% | {method} | " + " | ".join(row) + " |")
+        lines += ["", caveat, ""]
     return "\n".join(lines)

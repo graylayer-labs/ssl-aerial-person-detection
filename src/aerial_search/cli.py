@@ -338,6 +338,67 @@ def build_parser() -> argparse.ArgumentParser:
     _add_fold_flag(head)
     _add_run_flags(head)
 
+    base = subcommands.add_parser(
+        "train-baseline",
+        help="fine-tune a COCO-pretrained torchvision detector on the same "
+        "labels as train-head: one fold, camera, fraction, seed (#67)",
+    )
+    base.add_argument("camera", choices=["rgb", "thermal"])
+    base.add_argument("--percent", type=int, choices=PERCENTS, required=True)
+    base.add_argument("--seed", type=int, default=SEED)
+    base.add_argument("--data-root", type=Path, default=Path("data/raw/wisard-full"))
+    base.add_argument(
+        "--manifests", type=Path, default=Path("data/manifests/wisard-full")
+    )
+    from aerial_search.experiments.baseline_experiment import (
+        ARCHITECTURES,
+        INPUTS,
+        BaselineRecipe,
+    )
+
+    base_defaults = BaselineRecipe()
+    base.add_argument("--arch", choices=ARCHITECTURES, default=base_defaults.arch)
+    base.add_argument(
+        "--input",
+        choices=INPUTS,
+        default=base_defaults.input,
+        help="cache: the frozen backbone's input size (the fair row); "
+        "native: no resize",
+    )
+    for name in ("steps", "batch_size", "eval_every", "val_frames", "top_k", "workers"):
+        flag = "--" + name.replace("_", "-")
+        base.add_argument(flag, type=int, default=getattr(base_defaults, name))
+    base.add_argument(
+        "--learning-rate", type=float, default=base_defaults.learning_rate
+    )
+    base.add_argument(
+        "--limit-frames",
+        type=int,
+        default=0,
+        help="scratch only: keep this many frames per split (timing check)",
+    )
+    base.add_argument(
+        "--device",
+        default="cpu",
+        help="default and only device for a normal run: cpu (MPS diverged)",
+    )
+    _add_fold_flag(base)
+    _add_run_flags(base)
+
+    compare = subcommands.add_parser(
+        "compare-table",
+        help="head and baseline runs in one table, per fold with mean and "
+        "spread; refuses runs that did not see the same frames",
+    )
+    compare.add_argument(
+        "methods",
+        nargs="+",
+        metavar="NAME=DIR",
+        help="e.g. head=outputs/detection-head/<cache> "
+        "baseline=outputs/detection-baseline/fasterrcnn_resnet50_fpn-cache",
+    )
+    compare.add_argument("--json", type=Path, help="also write the summaries as JSON")
+
     table = subcommands.add_parser(
         "head-table",
         help="table of completed train-head runs: per camera, fold and fraction, "
@@ -570,6 +631,55 @@ def main(argv: list[str] | None = None) -> None:
         ) as error:
             raise SystemExit(f"refusing to start: {error}") from error
         print(json.dumps(summary, indent=2))
+        return
+
+    if args.command == "train-baseline":
+        import torch
+
+        from aerial_search import run
+        from aerial_search.experiments import baseline_experiment
+
+        names = ("arch", "input", "steps", "batch_size", "learning_rate")
+        names += ("eval_every", "val_frames", "top_k", "workers")
+        recipe = baseline_experiment.BaselineRecipe(
+            **{n: getattr(args, n) for n in names}
+        )
+        try:
+            summary = baseline_experiment.run_baseline(
+                manifests=args.manifests,
+                data_root=args.data_root,
+                fold=args.fold,
+                camera=args.camera,
+                percent=args.percent,
+                seed=args.seed,
+                recipe=recipe,
+                scratch=args.scratch,
+                run_name=args.run_name,
+                device=torch.device(args.device),
+                limit_frames=args.limit_frames,
+            )
+        except (run.ProvenanceError, ValueError) as error:
+            raise SystemExit(f"refusing to start: {error}") from error
+        print(json.dumps(summary, indent=2))
+        return
+
+    if args.command == "compare-table":
+        from aerial_search.experiments import head_table
+
+        try:
+            runs = {}
+            for item in args.methods:
+                name, _, directory = item.partition("=")
+                if not directory:
+                    raise head_table.TableError(f"{item!r} is not NAME=DIR")
+                runs[name] = head_table.collect(Path(directory))
+            head_table.check_same_frames(runs)
+            summaries = {n: head_table.summarise(r) for n, r in runs.items()}
+        except head_table.TableError as error:
+            raise SystemExit(f"refusing to tabulate: {error}") from error
+        print(head_table.markdown_compare(summaries, head_table.compare_caveat(runs)))
+        if args.json:
+            args.json.write_text(json.dumps(summaries, indent=2) + "\n")
         return
 
     if args.command == "head-table":
