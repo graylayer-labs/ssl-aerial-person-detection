@@ -66,7 +66,7 @@ WORKERS = 3
 class StemRecipe(Recipe):
     """The head's recipe plus what the stem arm needs."""
 
-    micro_batch: int = 8  # frames per forward/backward; gradients are summed
+    micro_batch: int = 4  # frames per forward/backward; gradients are summed
     eval_batch: int = 16
     stem_hidden: int = 16
     loss_scale: float = 256.0  # for the half-precision backward pass
