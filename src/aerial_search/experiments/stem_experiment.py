@@ -48,10 +48,12 @@ from aerial_search.experiments.head_experiment import (
     Geometry,
     Recipe,
     Split,
+    build_head,
     cache_arm,
     check_cache,
     decode,
     load_split,
+    load_warm_start,
     record_boxes,
 )
 from aerial_search.models.backbone import NaflexExtractor, Prepared
@@ -204,6 +206,41 @@ def evaluate(model: StemModel, data: Frames, recipe: StemRecipe, *, stride: int 
     return evaluate_detections(truths, predictions)
 
 
+def accumulate(
+    forward: Callable[[dict[str, Tensor]], tuple[Tensor, Tensor, Tensor]],
+    batches: Iterator[tuple[Sequence[int], dict[str, Tensor]]],
+    targets: dict[str, np.ndarray],
+    index: np.ndarray,
+    *,
+    loss_scale: float,
+    device: torch.device,
+    check: Callable[[Sequence[int], dict[str, Tensor]], None] | None = None,
+) -> float:
+    """Backward through each micro-batch, summing to one full-batch gradient.
+
+    `centre_loss` divides by the people in the batch it is given, so a
+    micro-batch's loss is weighted by `max(c_k, 1) / max(c_total, 1)`, c being
+    the count of people. Then the sum of the weighted losses, and of their
+    gradients, equals the loss of one batch of all `index` frames exactly,
+    micro-batches without people included. (Weighting by frames would not.)
+    Gradients are scaled by `loss_scale` for the half-precision tower; the
+    caller unscales them. Returns the full-batch loss, unscaled.
+    """
+    heat = targets["heat"]
+    total_people = max(int((heat[index] == 1).sum()), 1)
+    total = 0.0
+    for group, inputs in batches:
+        if check is not None:
+            check(group, inputs)
+        batch = {k: torch.from_numpy(v[group]).to(device) for k, v in targets.items()}
+        people = max(int((heat[group] == 1).sum()), 1)
+        weight = people / total_people
+        loss = centre_loss(forward(inputs), batch)
+        (loss * weight * loss_scale).backward()
+        total += float(loss.item()) * weight
+    return total
+
+
 def train(
     model: StemModel,
     data: Frames,
@@ -247,17 +284,17 @@ def train(
             for s in range(0, len(index), recipe.micro_batch)
         ]
         optimiser.zero_grad()
-        total = 0.0
-        for group, inputs in data.source.batches(groups):
-            _check_grid(inputs, [data.entries[i] for i in group])
-            targets = {
-                k: torch.from_numpy(v[group]).to(model.device)
-                for k, v in split.targets.items()
-            }
-            loss = centre_loss(model.forward(inputs), targets)
-            weight = len(group) / len(index)
-            (loss * weight * recipe.loss_scale).backward()
-            total += float(loss.item()) * weight
+        total = accumulate(
+            model.forward,
+            data.source.batches(groups),
+            split.targets,
+            index,
+            loss_scale=recipe.loss_scale,
+            device=model.device,
+            check=lambda group, inputs: _check_grid(
+                inputs, [data.entries[i] for i in group]
+            ),
+        )
         finite = True
         for p in params:
             if p.grad is not None:
@@ -286,9 +323,18 @@ def train(
     return history
 
 
-def default_run_name(cache_dir: Path, camera: str, fold: str, percent: int, seed: int):
+def default_run_name(
+    cache_dir: Path,
+    camera: str,
+    fold: str,
+    percent: int,
+    seed: int,
+    warm: bool = False,
+):
+    suffix = "-warm" if warm else ""
     return (
-        f"detection-head/{cache_dir.name}-{ARM}/{camera}-{fold}-{percent}pct-seed{seed}"
+        f"detection-head/{cache_dir.name}-{ARM}{suffix}/"
+        f"{camera}-{fold}-{percent}pct-seed{seed}"
     )
 
 
@@ -319,8 +365,15 @@ def run_stem_head(
     argv: list[str] | None = None,
     load_backbone: Callable[[str, torch.device], tuple[Any, Any]] | None = None,
     weights: Callable[[str, str], dict[str, str]] | None = None,
+    init_head: Path | None = None,
 ) -> dict[str, Any]:
     """One run of arm C: train stem and head, select on validation, score on test.
+
+    `init_head` (a finished cold arm-A run directory with the same fold,
+    percent, camera and seed) starts the head from its trained weights; the
+    stem still starts as the identity, so step 0 is exactly that arm-A head.
+    This is the warm start: it is recorded in `config.warm_start`, and its
+    matched control is `run_head(init_head=...)` for the same steps.
 
     `cache_dir` is the replicate cache; only its index (the geometry of each
     frame) and settings (model, weights, token budget, pooling) are read, and
@@ -369,11 +422,27 @@ def run_stem_head(
     found = (weights or backbone.weight_checksums)(spec.repo, spec.revision)
     if found != stored["weights_sha256"]:
         raise CacheError("the weights on disk are not those the cache was made with")
+    warm, warm_record = None, {}
+    if init_head is not None:
+        warm, warm_record = load_warm_start(
+            init_head,
+            fold=fold,
+            percent=percent,
+            camera=camera,
+            seed=seed,
+            recipe=recipe,
+            cache_settings=stored,
+            scratch=scratch,
+        )
+    dims = {int(e["dim"]) for e in cache.entries.values()}
+    if len(dims) > 1:
+        raise CacheError(f"{cache_dir} holds several feature sizes: {sorted(dims)}")
     config = {
         "camera": camera,
         "fold": fold,
         "percent": percent,
         "input_handling": ARM,
+        **({"warm_start": warm_record} if warm_record else {}),
         "recipe": asdict(recipe),
         "cache_dir": str(cache_dir),
         "cache": cache.settings,
@@ -386,35 +455,46 @@ def run_stem_head(
         "train together; no feature file is read",
     }
     directory = run_module.start_run(
-        run_name or default_run_name(cache_dir, camera, fold, percent, seed),
+        run_name
+        or default_run_name(cache_dir, camera, fold, percent, seed, warm is not None),
         config,
         seed,
         device=str(device),
         scratch=scratch,
         argv=argv,
         repo=repo,
-        inputs=[*paths.values(), cache_dir / "cache.json", cache_dir / "index.jsonl"],
+        inputs=[
+            *paths.values(),
+            cache_dir / "cache.json",
+            cache_dir / "index.jsonl",
+            *([init_head / "head.pt"] if init_head else []),
+        ],
         fold=fold,
         view=camera,
         manifests=manifests,
         data_root=data_root,
     )
     try:
-        torch.manual_seed(seed)
+        # the head first, straight after the seed, exactly as run_head does, so
+        # at one seed it starts from the same weights as arm A; the stem and
+        # the tower draw from their own state afterwards
+        head = build_head(seed, dims.pop() if dims else 0, recipe)
+        if warm is not None:
+            head.load_state_dict(warm)
+        head.to(device)
         tower, processor = (load_backbone or _load_backbone)(stored["model"], device)
+        if int(tower.config.hidden_size) != head.norm.normalized_shape[0]:
+            raise CacheError("the tower's feature size is not the cache's")
         for p in tower.parameters():
             p.requires_grad_(False)
         tower.eval()
         extractor = NaflexExtractor(
             tower, processor, stored["token_budget"], stored["pooling"]
         )
-        stem = ThermalStem(recipe.stem_hidden).to(device)
+        with torch.random.fork_rng(devices=[]):  # the stem's own generator
+            torch.manual_seed(seed + 1)
+            stem = ThermalStem(recipe.stem_hidden).to(device)
         stack = StemBackbone(tower, stem, int(processor.patch_size), stored["pooling"])
-        head = CentreHead(
-            dim=int(tower.config.hidden_size),
-            hidden=recipe.hidden,
-            upsample=recipe.upsample,
-        ).to(device)
         model = StemModel(stack, head, device)
         data: dict[str, Frames] = {}
         for role, rs in records.items():

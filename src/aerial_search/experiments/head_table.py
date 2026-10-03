@@ -72,8 +72,10 @@ def collect(root: Path) -> list[dict[str, Any]]:
                 "camera": config["camera"],
                 "fold": config["fold"],
                 "percent": str(config["percent"]),
-                # #66 runs predate the field and are the replicate arm
-                "arm": config.get("input_handling", "replicate"),
+                # #66 runs predate the field and are the replicate arm; a run
+                # started from a trained head is its own arm, "<arm>-warm"
+                "arm": config.get("input_handling", "replicate")
+                + ("-warm" if config.get("warm_start") else ""),
                 "commit": record.get("commit"),
                 "made_with": _made_with(record),
                 "overall": _scores(metrics["overall"]),
@@ -97,6 +99,13 @@ def _made_with(record: dict[str, Any]) -> dict[str, Any]:
     (steps, batch, learning rate, head size...), the seed, and the cache,
     by the SHA-256 of its cache.json."""
     recipe = record["config"].get("recipe", {})
+    # the cache's settings but for the input handling, which is the arm itself:
+    # an equalised cache made with other pooling, budget or weights shows up
+    settings = {
+        k: v
+        for k, v in record["config"].get("cache", {}).get("settings", {}).items()
+        if k != "input_handling"
+    }
     cache = [
         i["sha256"]
         for i in record.get("inputs", [])
@@ -105,6 +114,7 @@ def _made_with(record: dict[str, Any]) -> dict[str, Any]:
     return {
         **{f"recipe.{k}": v for k, v in sorted(recipe.items())},
         "seed": record.get("seed"),
+        "cache settings": settings,
         "cache.json sha256": cache[0] if cache else None,
     }
 
@@ -229,7 +239,15 @@ def markdown(summary: dict[str, Any]) -> str:
 # --- the thermal input ablation (#68) -----------------------------------------
 
 CONTROL = "replicate"
-ARM_ORDER = ("replicate", "equalise", "stem")
+WARM_CONTROL = "replicate-warm"
+CONTROLS = (CONTROL, WARM_CONTROL)
+ARM_ORDER = ("replicate", "equalise", "stem", WARM_CONTROL, "stem-warm")
+
+
+def control_of(arm: str) -> str:
+    """The arm to compare `arm` with: warm arms against the warm control (the
+    same trained head, the same extra steps), cold arms against the cold one."""
+    return WARM_CONTROL if arm.endswith("-warm") else CONTROL
 
 
 def collect_arms(
@@ -273,21 +291,20 @@ def collect_arms(
 
 
 def arm_notes(by_arm: dict[str, list[dict[str, Any]]]) -> list[str]:
-    """Every way an arm's recipe differs from the control arm's, one line each."""
+    """Every way an arm's recipe or cache differs from its control's, one line each."""
     notes: list[str] = []
-    if CONTROL not in by_arm:
-        return notes
-    base = by_arm[CONTROL][0]["made_with"]
     for arm in ARM_ORDER:
-        if arm == CONTROL or arm not in by_arm:
+        control = control_of(arm)
+        if arm == control or arm not in by_arm or control not in by_arm:
             continue
+        base = by_arm[control][0]["made_with"]
         made = by_arm[arm][0]["made_with"]
         for field in sorted(set(base) | set(made)):
             if field == "cache.json sha256":
-                continue  # differs by design: the arm is what the cache holds
+                continue  # differs by design; the settings are compared instead
             if base.get(field) != made.get(field):
                 notes.append(
-                    f"{arm}: {field} is {made.get(field)!r}, {CONTROL} has "
+                    f"{arm}: {field} is {made.get(field)!r}, {control} has "
                     f"{base.get(field)!r}"
                 )
     return notes
@@ -297,8 +314,15 @@ def summarise_arms(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     """camera -> percent -> arm -> `summarise` entry, plus for each non-control
     arm `delta`: mean, sample sd and count of the per-fold change of each
     metric against the control, over the folds both have."""
-    if CONTROL not in by_arm:
+    if not any(c in by_arm for c in CONTROLS):
         raise TableError(f"no {CONTROL!r} arm: the ablation needs its control")
+    commits = sorted({str(r["commit"]) for runs in by_arm.values() for r in runs})
+    if len(commits) > 1:
+        warnings.warn(
+            f"the arms come from {len(commits)} commits ({', '.join(commits)}); "
+            "check that nothing that changes a result differs between them",
+            stacklevel=2,
+        )
     per_arm = {arm: summarise(runs) for arm, runs in by_arm.items()}
     out: dict[str, Any] = {}
     for arm in (a for a in ARM_ORDER if a in per_arm):
@@ -307,9 +331,9 @@ def summarise_arms(by_arm: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
                 out.setdefault(camera, {}).setdefault(percent, {})[arm] = entry
     for by_percent in out.values():
         for arms in by_percent.values():
-            control = arms.get(CONTROL)
             for arm, entry in arms.items():
-                if arm == CONTROL or control is None:
+                control = arms.get(control_of(arm))
+                if arm == control_of(arm) or control is None:
                     continue
                 common = sorted(set(entry["folds"]) & set(control["folds"]))
                 entry["delta"] = {
@@ -339,7 +363,8 @@ def markdown_arms(summary: dict[str, Any], notes: Sequence[str] = ()) -> str:
             lines += [
                 f"### {camera}, {percent}% of labels: test ap_iou25 / ap_iou50 "
                 "per fold, mean ± sd over folds, and the mean per-fold change "
-                f"of ap_iou25 against {CONTROL}",
+                f"of ap_iou25 against the control (replicate; replicate-warm for the "
+                "warm arms)",
                 "",
                 "| arm | "
                 + " | ".join(folds)

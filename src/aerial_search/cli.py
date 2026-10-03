@@ -314,6 +314,15 @@ def build_parser() -> argparse.ArgumentParser:
         "before the frozen backbone and takes its geometry from the replicate "
         "--cache (thermal only; slow: see docs/thermal-input-ablation.md)",
     )
+    head.add_argument(
+        "--init-head",
+        type=Path,
+        metavar="RUN_DIR",
+        help="warm start (#68): begin from the trained head of this finished "
+        "arm-A run (same fold, percent, camera and seed; it must have saved "
+        "head.pt). Use it with --steps 120 for the stem arm and for its matched "
+        "control, so the two differ only in the stem",
+    )
     stem_defaults = StemRecipe()
     for name in ("micro_batch", "eval_batch", "stem_hidden", "validation_stride"):
         flag = "--" + name.replace("_", "-")
@@ -534,6 +543,7 @@ def main(argv: list[str] | None = None) -> None:
                     scratch=args.scratch,
                     run_name=args.run_name,
                     device=torch.device(args.device) if args.device else get_device(),
+                    init_head=args.init_head,
                 )
                 print(json.dumps(summary, indent=2))
                 return
@@ -550,6 +560,7 @@ def main(argv: list[str] | None = None) -> None:
                 run_name=args.run_name,
                 device=torch.device(args.device) if args.device else get_device(),
                 input_handling=args.input_handling,
+                init_head=args.init_head,
             )
         except (
             feature_cache.CacheError,
