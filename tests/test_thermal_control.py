@@ -45,7 +45,7 @@ def test_the_replicate_path_reproduces_cached_thermal_features():
 
     for f in frames:
         stored = np.asarray(fc.read_features(CACHE, f.path))
-        fresh = extractor(fc._open(DATA / f.path))
+        fresh = extractor.extract(extractor.prepare(fc._open(DATA / f.path))).array
         # measured 2026-10-03 on the M4 (MPS): identical, not merely close.
         # Same weights, same preprocessing, same device, fp16 throughout. On
         # another device bits can differ, so fall back to the cache's own limit.
