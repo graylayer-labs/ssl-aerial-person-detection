@@ -8,6 +8,21 @@ each links to the issue or pull request that holds the detail.
 
 ### 2026-10-03
 
+**Result**
+- Thermal does not need its own input handling yet. On the thermal view at
+  10% and 100% of labels, a learned input stem changed mean `ap_iou25` by
+  -0.009 and +0.007 against a matched control, within the spread over
+  folds; histogram equalisation lowered it by 0.050 and 0.137, on three of
+  four folds at each fraction. Copying the grey channel stays the default.
+  ([results](docs/thermal-input-ablation.md),
+  [#68](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/68))
+
+**Found**
+- 120 more training steps raised the 10%-label thermal heads from a mean
+  `ap_iou25` of 0.129 to 0.162, while the 100% heads barely moved, so the
+  first bar may stop small-label runs too early.
+  ([#68](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/68))
+
 **New**
 - The thermal input ablation can be run: `cache-features --thermal-input
   equalise` builds a separate equalised thermal cache, `train-head
@@ -15,7 +30,7 @@ each links to the issue or pull request that holds the detail.
   backbone, and `head-table --ablation` tabulates the three arms per fold.
   Each run records its arm in `run.json`. `train-head --init-head <run>`
   warm-starts the stem arm and its matched control from a trained arm-A head,
-  so the stem arm fits the laptop. No results yet.
+  so the stem arm fits the laptop.
   ([#68](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/68))
 
 ### 2026-10-02
