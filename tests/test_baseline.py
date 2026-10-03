@@ -179,13 +179,14 @@ def fake_table_run(root, camera, fold, percent, ap25, ap50, method, train_hash="
         "camera": camera,
         "fold": fold,
         "percent": percent,
-        "recipe": {"steps": 1},
+        "recipe": {"steps": 1, "val_frames": 100},
     }
     inputs = [
         {
             "path": f"m/folds/{fold}/{camera}/train_{percent}pct.jsonl",
             "sha256": train_hash,
         },
+        {"path": f"m/folds/{fold}/{camera}/validation.jsonl", "sha256": "v"},
         {"path": f"m/folds/{fold}/{camera}/test.jsonl", "sha256": "t"},
     ]
     run = {
@@ -249,3 +250,60 @@ def test_the_default_architecture_returns_boxes_in_the_pixels_it_is_given():
     (out,) = model([torch.zeros(3, 96, 160)])  # no internal resize
     assert out["boxes"].shape[1] == 4
     assert out["boxes"].numel() == 0 or float(out["boxes"].max()) <= 160
+
+
+def test_every_architectures_anchors_fit_its_rpn_head():
+    for arch, sizes in be.ANCHORS.items():
+        model = be.build_model(arch, pretrained=False, anchor_sizes=sizes)
+        per_location = model.rpn.anchor_generator.num_anchors_per_location()
+        assert len(per_location) == len(sizes)
+        assert model.rpn.head.cls_logits.out_channels == per_location[0]
+        assert model.rpn.head.bbox_pred.out_channels == 4 * per_location[0]
+
+
+def test_anchors_that_do_not_fit_the_rpn_head_are_refused():
+    with pytest.raises(ValueError, match="anchors per location"):
+        be.build_model(
+            "fasterrcnn_mobilenet_v3_large_fpn",
+            pretrained=False,
+            anchor_sizes=((8,), (16,), (32,)),
+        )
+
+
+def test_a_normal_run_refuses_a_device_other_than_cpu(tmp_path):
+    with pytest.raises(ValueError, match="cpu"):
+        be.run_baseline(
+            manifests=tmp_path,
+            data_root=tmp_path,
+            fold=FOLD,
+            camera="thermal",
+            percent=1,
+            seed=0,
+            recipe=be.BaselineRecipe(),
+            scratch=False,
+            run_name=None,
+            device=torch.device("mps"),
+        )
+
+
+def test_the_comparison_refuses_a_missing_cell_or_a_missing_split_file(tmp_path):
+    from aerial_search.experiments import head_table as ht
+
+    fake_table_run(tmp_path / "head", "rgb", "A", 1, 0.2, 0.1, "head")
+    fake_table_run(tmp_path / "head2", "rgb", "A", 5, 0.2, 0.1, "head")
+    fake_table_run(tmp_path / "base", "rgb", "A", 1, 0.3, 0.1, "baseline")
+    head = ht.collect(tmp_path / "head") + ht.collect(tmp_path / "head2")
+    base = ht.collect(tmp_path / "base")
+    with pytest.raises(ht.TableError, match="rgb/A/5"):
+        ht.check_same_frames({"head": head, "baseline": base})
+    base[0]["manifests"].pop("A/rgb/validation.jsonl")
+    with pytest.raises(ht.TableError, match="validation.jsonl is missing"):
+        ht.check_same_frames({"head": head[:1], "baseline": base})
+
+
+def test_the_caveat_names_the_validation_frames_the_baseline_used(tmp_path):
+    from aerial_search.experiments import head_table as ht
+
+    fake_table_run(tmp_path / "base", "rgb", "A", 1, 0.3, 0.1, "baseline")
+    text = ht.compare_caveat({"baseline": ht.collect(tmp_path / "base")})
+    assert "baseline picked its step on 100 evenly spaced" in text

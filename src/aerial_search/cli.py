@@ -377,7 +377,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="scratch only: keep this many frames per split (timing check)",
     )
-    base.add_argument("--device", help="default: mps if available, else cpu")
+    base.add_argument(
+        "--device",
+        default="cpu",
+        help="default and only device for a normal run: cpu (MPS diverged)",
+    )
     _add_fold_flag(base)
     _add_run_flags(base)
 
@@ -634,7 +638,6 @@ def main(argv: list[str] | None = None) -> None:
 
         from aerial_search import run
         from aerial_search.experiments import baseline_experiment
-        from aerial_search.models.components import get_device
 
         names = ("arch", "input", "steps", "batch_size", "learning_rate")
         names += ("eval_every", "val_frames", "top_k", "workers")
@@ -652,7 +655,7 @@ def main(argv: list[str] | None = None) -> None:
                 recipe=recipe,
                 scratch=args.scratch,
                 run_name=args.run_name,
-                device=torch.device(args.device) if args.device else get_device(),
+                device=torch.device(args.device),
                 limit_frames=args.limit_frames,
             )
         except (run.ProvenanceError, ValueError) as error:
@@ -674,7 +677,7 @@ def main(argv: list[str] | None = None) -> None:
             summaries = {n: head_table.summarise(r) for n, r in runs.items()}
         except head_table.TableError as error:
             raise SystemExit(f"refusing to tabulate: {error}") from error
-        print(head_table.markdown_compare(summaries))
+        print(head_table.markdown_compare(summaries, head_table.compare_caveat(runs)))
         if args.json:
             args.json.write_text(json.dumps(summaries, indent=2) + "\n")
         return

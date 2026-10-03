@@ -14,8 +14,9 @@ from __future__ import annotations
 import copy
 import json
 import math
+import warnings
 from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -45,13 +46,15 @@ ARCHITECTURES = (
 # baseline the same pixels the head's features were computed from.
 CACHE_INPUT = {"rgb": (672, 384), "thermal": (560, 448)}
 INPUTS = ("cache", "native")
-# One anchor size per feature-pyramid level (default 32 to 512): the smallest
-# people are 4 px wide at the head's input size.
-ANCHORS = {
-    "fasterrcnn_resnet50_fpn": (8, 16, 32, 64, 128),
-    # three feature levels (strides 16, 32, 64); one size each keeps three
-    # anchors per location, so the pretrained RPN head still fits
-    "fasterrcnn_mobilenet_v3_large_fpn": (12, 24, 48),
+# Anchor sizes per feature-pyramid level (default 32 to 512): the smallest
+# people are 4 px wide at the head's input size. The number of anchors per
+# location must equal the pretrained RPN head's (a mismatch indexes the wrong
+# logits without any error): ResNet-50 has five levels with 1 size each (3
+# anchors with 3 ratios); MobileNet has three levels (finest stride 32 at
+# 672x384 input) with 5 sizes each (15 anchors).
+ANCHORS: dict[str, tuple[tuple[int, ...], ...]] = {
+    "fasterrcnn_resnet50_fpn": tuple((s,) for s in (8, 16, 32, 64, 128)),
+    "fasterrcnn_mobilenet_v3_large_fpn": ((8, 16, 32, 64, 128),) * 3,
 }
 
 
@@ -72,6 +75,7 @@ class BaselineRecipe:
     top_k: int = 100
     score_floor: float = 0.001  # keep low-scoring boxes: AP needs the whole curve
     workers: int = 4
+    device: str = "cpu"  # MPS gave a diverged loss (docs/decisions.md)
 
 
 def input_size(camera: str, mode: str) -> tuple[int, int] | None:
@@ -98,7 +102,7 @@ def build_model(
     arch: str,
     *,
     pretrained: bool,
-    anchor_sizes: Sequence[int] = (),
+    anchor_sizes: Sequence[Sequence[int]] = (),
     score_floor: float = 0.001,
     top_k: int = 100,
 ):
@@ -130,9 +134,16 @@ def build_model(
             from torchvision.models.detection.anchor_utils import AnchorGenerator
 
             ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)
-            model.rpn.anchor_generator = AnchorGenerator(
-                tuple((s,) for s in anchor_sizes), ratios
-            )
+            generator = AnchorGenerator(tuple(map(tuple, anchor_sizes)), ratios)
+            head = model.rpn.head
+            if generator.num_anchors_per_location() != [
+                head.cls_logits.out_channels
+            ] * len(anchor_sizes):
+                raise ValueError(
+                    f"{arch}: {generator.num_anchors_per_location()} anchors per "
+                    f"location, but the RPN head predicts {head.cls_logits.out_channels}"
+                )
+            model.rpn.anchor_generator = generator
         from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
         model.roi_heads.box_predictor = FastRCNNPredictor(
@@ -385,6 +396,14 @@ def run_baseline(
 
     if limit_frames and not scratch:
         raise ValueError("limit_frames needs a scratch run")
+    if device.type != "cpu":
+        if not scratch:
+            raise ValueError(
+                f"a normal run must use the cpu, not {device.type}: Faster R-CNN "
+                "on MPS diverged (loss 7e7) and hung"
+            )
+        warnings.warn(f"{device.type} is unreliable for this baseline", stacklevel=2)
+    recipe = replace(recipe, device=device.type)
     paths, records = select_records(manifests, fold, camera, percent)
     if limit_frames:
         records = {r: subsample(rs, limit_frames) for r, rs in records.items()}
