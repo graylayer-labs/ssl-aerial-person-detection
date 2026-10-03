@@ -432,6 +432,7 @@ def run_stem_head(
             seed=seed,
             recipe=recipe,
             cache_settings=stored,
+            manifests=list(paths.values()),
             scratch=scratch,
         )
     dims = {int(e["dim"]) for e in cache.entries.values()}

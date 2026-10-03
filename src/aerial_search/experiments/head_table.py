@@ -48,9 +48,12 @@ def _scores(metrics: dict[str, Any]) -> dict[str, float]:
     return out
 
 
-def collect(root: Path) -> list[dict[str, Any]]:
+def collect(root: Path, *, ablation: bool = False) -> list[dict[str, Any]]:
     """Every run under `root`, with its test scores. Raises `TableError` on a
-    scratch or unfinished run, or a completed run without its report."""
+    scratch or unfinished run, or a completed run without its report. Outside
+    the ablation (`ablation=False`, the plain table) a run that is warm-started
+    or not the replicate arm is refused: its numbers are not a #66-style cold
+    result."""
     runs: list[dict[str, Any]] = []
     for path in sorted(root.rglob("run.json")):
         record = json.loads(path.read_text())
@@ -66,6 +69,13 @@ def collect(root: Path) -> list[dict[str, Any]]:
             raise TableError(f"{name} is completed but has no {METRICS_FILENAME}")
         metrics = json.loads(report.read_text())
         config = record["config"]
+        arm = config.get("input_handling", "replicate")
+        if not ablation and (arm != "replicate" or config.get("warm_start")):
+            raise TableError(
+                f"{name} is a {arm!r} run"
+                f"{' started from a trained head' if config.get('warm_start') else ''}"
+                "; tabulate it with --ablation, not as a cold table"
+            )
         runs.append(
             {
                 "name": name,
@@ -269,7 +279,7 @@ def collect_arms(
     for root in roots:
         runs = [
             r
-            for r in collect(root)
+            for r in collect(root, ablation=True)
             if (camera is None or r["camera"] == camera)
             and (percents is None or r["percent"] in percents)
         ]

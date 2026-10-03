@@ -825,3 +825,27 @@ def test_the_ablation_warns_when_arms_come_from_different_commits(tmp_path):
 
     with pytest.warns(UserWarning, match="2 commits"):
         head_table.summarise_arms(by_arm)
+
+
+def test_the_plain_table_refuses_warm_and_non_replicate_runs(tmp_path):
+    from aerial_search.experiments import head_table
+
+    fake_run(tmp_path / "w", "thermal", "A", 10, 0.2, 0.1)
+    path = tmp_path / "w" / "thermal-A-10" / "run.json"
+    record = json.loads(path.read_text())
+    record["config"]["warm_start"] = {"init_head": "h"}
+    path.write_text(json.dumps(record))
+    with pytest.raises(head_table.TableError, match="--ablation"):
+        head_table.collect(tmp_path / "w")
+
+    fake_run(tmp_path / "e", "thermal", "A", 10, 0.2, 0.1, arm="equalise")
+    with pytest.raises(head_table.TableError, match="--ablation"):
+        head_table.collect(tmp_path / "e")
+    assert head_table.collect(tmp_path / "e", ablation=True)[0]["arm"] == "equalise"
+
+
+def test_a_warm_start_is_refused_for_the_equalise_arm(tmp_path):
+    cache, fold = scratch_setup(tmp_path, {"input_handling": "equalise"})
+
+    with pytest.raises(CacheError, match="control and the stem arm"):
+        tiny_run(tmp_path, cache, fold, init_head=tmp_path)

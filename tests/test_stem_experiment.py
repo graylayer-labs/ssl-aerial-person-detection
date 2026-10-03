@@ -319,8 +319,21 @@ def arm_a_run(tmp_path: Path, cache: Path, **override) -> Path:
     torch.save(
         CentreHead(dim=16, hidden=8, upsample=4).state_dict(), directory / "head.pt"
     )
+    import hashlib
+
     settings = json.loads((cache / "cache.json").read_text())
+    view = tmp_path / "manifests" / "folds" / FOLD / "thermal"
+    inputs = [
+        {"path": str(f), "sha256": hashlib.sha256(f.read_bytes()).hexdigest()}
+        for f in (
+            view / "train_100pct.jsonl",
+            view / "validation.jsonl",
+            view / "test.jsonl",
+        )
+    ]
     record = {
+        "run_name": "armA-name",
+        "inputs": inputs,
         "status": "completed",
         "scratch": True,
         "seed": 7,
@@ -360,7 +373,8 @@ def test_a_warm_start_loads_the_arm_a_head_and_records_where_it_came_from(
     directory = tmp_path / "second" / "repo" / "outputs" / "scratch-stem-test"
     config = json.loads((directory / "run.json").read_text())["config"]
     sha = hashlib.sha256((init / "run.json").read_bytes()).hexdigest()
-    assert config["warm_start"]["init_head"] == str(init)
+    assert config["warm_start"]["init_head"] == str(init.resolve())
+    assert config["warm_start"]["init_run"] == "armA-name"
     assert config["warm_start"]["run_json_sha256"] == sha
 
 
@@ -383,4 +397,15 @@ def test_a_warm_start_from_another_seed_fold_or_unfinished_run_is_refused(
     (init / "run.json").write_text(json.dumps(record))
 
     with pytest.raises(CacheError, match=match):
+        run(tmp_path, cache, tiny_tower(), init_head=init)
+
+
+def test_a_warm_start_from_other_manifests_is_refused(tmp_path):
+    cache = setup(tmp_path)
+    init = arm_a_run(tmp_path, cache)
+    record = json.loads((init / "run.json").read_text())
+    record["inputs"][0]["sha256"] = "0" * 64  # the train manifest changed
+    (init / "run.json").write_text(json.dumps(record))
+
+    with pytest.raises(CacheError, match="manifests differ"):
         run(tmp_path, cache, tiny_tower(), init_head=init)

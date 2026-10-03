@@ -608,6 +608,7 @@ def load_warm_start(
     seed: int,
     recipe: Recipe,
     cache_settings: Mapping[str, Any],
+    manifests: Sequence[Path],
     scratch: bool,
 ) -> tuple[dict[str, torch.Tensor], dict[str, str]]:
     """The trained head of a finished arm-A run, and the record of where it is from.
@@ -616,7 +617,8 @@ def load_warm_start(
     replicate input, and share this run's fold, percent, camera, seed, head
     size and cache settings; anything else is refused, so a warm start can
     never carry another fold's labels or another seed's head into this run.
-    A scratch run's head is accepted only by a scratch run.
+    A scratch run's head is accepted only by a scratch run. Its manifests
+    (by the SHA-256 in its run.json inputs) must be this run's `manifests`.
     """
     run_json = init_head / "run.json"
     try:
@@ -657,8 +659,21 @@ def load_warm_start(
     here = {k: v for k, v in cache_settings.items() if k != "input_handling"}
     if keep != here:
         raise CacheError(f"{init_head} was trained on a different cache")
+    made_with = {Path(i["path"]).name: i["sha256"] for i in record.get("inputs", [])}
+    for path in manifests:
+        theirs = made_with.get(path.name)
+        mine = hashlib.sha256(path.read_bytes()).hexdigest()
+        if theirs != mine:
+            raise CacheError(
+                f"{init_head}: its {path.name} (sha256 {str(theirs)[:12]}) is not "
+                f"this run's ({mine[:12]}); the manifests differ"
+            )
     sha = hashlib.sha256(run_json.read_bytes()).hexdigest()
-    return state, {"init_head": str(init_head), "run_json_sha256": sha}
+    return state, {
+        "init_head": str(init_head.resolve()),
+        "init_run": str(record.get("run_name")),
+        "run_json_sha256": sha,
+    }
 
 
 def run_head(
@@ -728,6 +743,11 @@ def run_head(
         }
     warm, warm_record = None, {}
     if init_head is not None:
+        if arm != DEFAULT_ARM:
+            raise CacheError(
+                f"--init-head is for the {DEFAULT_ARM!r} control and the stem arm, "
+                f"not {arm!r}"
+            )
         warm, warm_record = load_warm_start(
             init_head,
             fold=fold,
@@ -736,6 +756,7 @@ def run_head(
             seed=seed,
             recipe=recipe,
             cache_settings=cache.settings["settings"],
+            manifests=list(paths.values()),
             scratch=scratch,
         )
     config = {
