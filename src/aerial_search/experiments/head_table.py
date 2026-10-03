@@ -88,6 +88,7 @@ def collect(root: Path, *, ablation: bool = False) -> list[dict[str, Any]]:
                 + ("-warm" if config.get("warm_start") else ""),
                 "commit": record.get("commit"),
                 "made_with": _made_with(record),
+                "manifests": _manifests(record),
                 "overall": _scores(metrics["overall"]),
                 "by_size": {k: _scores(m) for k, m in metrics["by_size"].items()},
             }
@@ -102,6 +103,35 @@ def collect(root: Path, *, ablation: bool = False) -> list[dict[str, Any]]:
                     "holds runs made the same way"
                 )
     return runs
+
+
+def _manifests(record: dict[str, Any]) -> dict[str, str]:
+    """SHA-256 of each manifest a run read, keyed by `<fold>/<camera>/<file>`."""
+    return {
+        "/".join(i["path"].split("/")[-3:]): i["sha256"]
+        for i in record.get("inputs", [])
+        if i["path"].endswith(".jsonl")
+    }
+
+
+def check_same_frames(runs_by_method: dict[str, list[dict[str, Any]]]) -> None:
+    """Refuse a comparison unless, in every cell two methods share, they read
+    manifests with identical bytes (so the same train, validation and test
+    frames, labels included)."""
+    seen: dict[tuple[str, str, str], tuple[str, dict[str, str]]] = {}
+    for method, runs in runs_by_method.items():
+        for run in runs:
+            cell = (run["camera"], run["fold"], run["percent"])
+            if cell not in seen:
+                seen[cell] = (method, run["manifests"])
+                continue
+            other, files = seen[cell]
+            for name in sorted(set(files) & set(run["manifests"])):
+                if files[name] != run["manifests"][name]:
+                    raise TableError(
+                        f"{name} differs between {other} and {method} "
+                        f"({run['name']}): they did not see the same frames"
+                    )
 
 
 def _made_with(record: dict[str, Any]) -> dict[str, Any]:
@@ -406,4 +436,43 @@ def markdown_arms(summary: dict[str, Any], notes: Sequence[str] = ()) -> str:
     lines += [SELECTION_CAVEAT, ""]
     if notes:
         lines += ["The arms' recipes differ:", "", *(f"- {n}" for n in notes), ""]
+    return "\n".join(lines)
+
+
+def markdown_compare(summaries: dict[str, dict[str, Any]]) -> str:
+    """One table per camera: a row per label fraction and method, a column per
+    fold, then mean and sd over folds. `summaries` maps a method name to its
+    `summarise` output; methods are listed in the order given."""
+    cameras = sorted({c for s in summaries.values() for c in s})
+    lines: list[str] = []
+    for camera in cameras:
+        by_method = {m: s[camera] for m, s in summaries.items() if camera in s}
+        percents = sorted({p for e in by_method.values() for p in e}, key=int)
+        folds = sorted(
+            {f for e in by_method.values() for x in e.values() for f in x["folds"]}
+        )
+        lines += [
+            f"### {camera}: test ap_iou25 / ap_iou50 per fold, "
+            "mean ± sd over folds, by method",
+            "",
+            "| labels | method | "
+            + " | ".join(folds)
+            + " | ap_iou25 | ap_iou50 | recall @0.1 FPPI | recall @1 FPPI | folds |",
+            "|---" * (len(folds) + 7) + "|",
+        ]
+        for percent in percents:
+            for method, e_by_percent in by_method.items():
+                e = e_by_percent.get(percent)
+                if e is None:
+                    continue
+                cells = [
+                    " / ".join(_fmt(e["folds"][f][m]) for m in METRICS[:2])
+                    if f in e["folds"]
+                    else "-"
+                    for f in folds
+                ]
+                stats = [_pm(e["mean"][m], e["std"][m]) for m in METRICS]
+                row = [*cells, *stats, str(e["n_folds"])]
+                lines.append(f"| {percent}% | {method} | " + " | ".join(row) + " |")
+        lines += ["", SELECTION_CAVEAT, ""]
     return "\n".join(lines)
