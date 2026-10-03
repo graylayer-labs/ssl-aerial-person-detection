@@ -6,6 +6,16 @@ each links to the issue or pull request that holds the detail.
 
 ## Epic: Off-the-shelf bar (in progress)
 
+### 2026-10-03
+
+**New**
+- The thermal input ablation can be run: `cache-features --thermal-input
+  equalise` builds a separate equalised thermal cache, `train-head
+  --input-handling stem` trains a learned input stem before the frozen
+  backbone, and `head-table --ablation` tabulates the three arms per fold.
+  Each run records its arm in `run.json`. No results yet.
+  ([#68](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/68))
+
 ### 2026-10-02
 
 **Changed**
