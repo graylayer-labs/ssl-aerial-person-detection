@@ -6,8 +6,7 @@ fold's validation split and scored on its test site-day through
 `aerial_search.evaluation.detection`. Which frames it sees comes from
 `head_experiment.select_records`, the function the head uses, and the score is
 the same `evaluate_detections`, so the two sit in one table
-(`head_table.markdown_compare`). The design is in
-docs/supervised-baseline-design.md.
+(`head_table.markdown_compare`).
 """
 
 from __future__ import annotations
