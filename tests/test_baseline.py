@@ -238,3 +238,14 @@ def test_the_comparison_refuses_runs_that_saw_different_frames(tmp_path):
                 "baseline": ht.collect(tmp_path / "base"),
             }
         )
+
+
+def test_the_default_architecture_returns_boxes_in_the_pixels_it_is_given():
+    model = be.build_model(
+        be.BaselineRecipe().arch,
+        pretrained=False,
+        anchor_sizes=be.ANCHORS[be.BaselineRecipe().arch],
+    ).eval()
+    (out,) = model([torch.zeros(3, 96, 160)])  # no internal resize
+    assert out["boxes"].shape[1] == 4
+    assert out["boxes"].numel() == 0 or float(out["boxes"].max()) <= 160
