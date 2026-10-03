@@ -29,6 +29,11 @@ SELECTION_CAVEAT = (
     "training labels plus all validation labels (RGB, test site-day MtErie: "
     "70 training frames at 1%, 1,339 validation frames)."
 )
+COMPARE_CAVEAT = (
+    SELECTION_CAVEAT + " The baseline picks its step on `val_frames` evenly "
+    "spaced validation frames (its run.json recipe) while the head uses all of "
+    "them."
+)
 
 
 class TableError(Exception):
@@ -474,5 +479,5 @@ def markdown_compare(summaries: dict[str, dict[str, Any]]) -> str:
                 stats = [_pm(e["mean"][m], e["std"][m]) for m in METRICS]
                 row = [*cells, *stats, str(e["n_folds"])]
                 lines.append(f"| {percent}% | {method} | " + " | ".join(row) + " |")
-        lines += ["", SELECTION_CAVEAT, ""]
+        lines += ["", COMPARE_CAVEAT, ""]
     return "\n".join(lines)

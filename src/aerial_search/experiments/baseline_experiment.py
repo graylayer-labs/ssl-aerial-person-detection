@@ -34,6 +34,7 @@ from aerial_search.evaluation.detection import (
 from aerial_search.experiments.head_experiment import record_boxes, select_records
 
 ARCHITECTURES = (
+    "fasterrcnn_mobilenet_v3_large_fpn",
     "fasterrcnn_resnet50_fpn",
     "retinanet_resnet50_fpn",
     "fcos_resnet50_fpn",
@@ -46,23 +47,28 @@ CACHE_INPUT = {"rgb": (672, 384), "thermal": (560, 448)}
 INPUTS = ("cache", "native")
 # One anchor size per feature-pyramid level (default 32 to 512): the smallest
 # people are 4 px wide at the head's input size.
-ANCHORS = (8, 16, 32, 64, 128)
+ANCHORS = {
+    "fasterrcnn_resnet50_fpn": (8, 16, 32, 64, 128),
+    # three feature levels (strides 16, 32, 64); one size each keeps three
+    # anchors per location, so the pretrained RPN head still fits
+    "fasterrcnn_mobilenet_v3_large_fpn": (12, 24, 48),
+}
 
 
 @dataclass(frozen=True)
 class BaselineRecipe:
     """Everything that defines how the baseline is built, trained and decoded."""
 
-    arch: str = "fasterrcnn_resnet50_fpn"
+    arch: str = "fasterrcnn_mobilenet_v3_large_fpn"
     input: str = "cache"  # "cache": the head's model input; "native": no resize
-    steps: int = 600
+    steps: int = 300
     batch_size: int = 8
     learning_rate: float = 0.01
     momentum: float = 0.9
     weight_decay: float = 1e-4
     warmup_steps: int = 50
-    eval_every: int = 150
-    val_frames: int = 200  # validation frames used to pick the step (0: all)
+    eval_every: int = 100
+    val_frames: int = 100  # validation frames used to pick the step (0: all)
     top_k: int = 100
     score_floor: float = 0.001  # keep low-scoring boxes: AP needs the whole curve
     workers: int = 4
@@ -116,7 +122,7 @@ def build_model(
     else:
         kwargs["weights"] = None
         kwargs["weights_backbone"] = None
-    if arch == "fasterrcnn_resnet50_fpn":
+    if arch.startswith("fasterrcnn"):
         model = ctor(
             **kwargs, box_detections_per_img=top_k, box_score_thresh=score_floor
         )
@@ -413,7 +419,7 @@ def run_baseline(
         model = build_model(
             recipe.arch,
             pretrained=True,
-            anchor_sizes=ANCHORS if recipe.arch == "fasterrcnn_resnet50_fpn" else (),
+            anchor_sizes=ANCHORS.get(recipe.arch, ()),
             score_floor=recipe.score_floor,
             top_k=recipe.top_k,
         )
