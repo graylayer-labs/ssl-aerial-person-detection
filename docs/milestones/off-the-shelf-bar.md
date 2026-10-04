@@ -108,8 +108,8 @@ uncommitted, which led to agents committing in smaller steps.
 
 Cost: about 15 hours of laptop compute (feature cache 0.9 h, head runs 1.4 h,
 thermal ablation 4.5 h, detector baseline 7 h, step-selection check 1.2 h),
-much of it overnight. No paid compute. Agent tokens recorded on the issues
-come to roughly 1.6 million, plus the lead's own session.
+much of it overnight. No paid compute. Each issue's handoff records its
+agent token cost.
 
 ## What comes next
 

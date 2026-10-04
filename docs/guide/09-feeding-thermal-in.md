@@ -58,7 +58,8 @@ Review caught two bugs that would have biased the stem arm before any run
    weights each micro-batch by its share of the batch's people
    ([decisions][decisions]).
 2. The stem drew random numbers before the head was built, so its head started
-   from different weights at the same seed as its control ([milestone note][milestone]).
+   from different weights at the same seed as its control
+   ([PR #87](https://github.com/graylayer-labs/ssl-aerial-person-detection/pull/87), "Review").
 
 All tests passed in both cases ([milestone note][milestone]).
 
