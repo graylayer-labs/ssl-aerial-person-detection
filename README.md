@@ -34,18 +34,25 @@ to.
 
 ## Status
 
-**Milestone 1, Trusted ground, is closing.** Nothing was trained; everything
-a result will rest on was checked first. The
-[write-up](docs/milestones/trusted-ground.md) has the detail.
+**Milestone 2, Off-the-shelf bar, is done.** A frozen foundation model was
+measured with 1% to 100% of the labels, and an ordinary fine-tuned detector
+beat it where labels are scarce. The
+[write-up](docs/milestones/off-the-shelf-bar.md) has the detail.
 
-- The project uses the public
-  [WiSARD dataset](https://sites.google.com/uw.edu/wisard/): 14,834 paired
-  RGB and thermal frames from 17 verified clips, 5,739 labelled in both
-  cameras, split into four folds that each leave one site out.
-- Starting model: SigLIP 2, kept frozen, with EVA-02 and DINOv2 as
-  comparisons.
-- No model results exist yet. The next milestone measures the off-the-shelf
-  baseline.
+![Mean test AP over four held-out site-days, frozen SigLIP 2 plus a head against a fine-tuned detector, RGB and thermal](docs/figures/off-the-shelf-bar.svg)
+
+- At the same input size, a COCO-pretrained Faster R-CNN fine-tuned on the
+  same frames beats a head on frozen SigLIP 2 features at 1%, 5% and 10% of
+  labels on both cameras, and is level at 100%. It is now the bar.
+- Thermal needs no special input handling: copying the grey channel is as
+  good as a learned input stem, and equalising contrast hurts.
+- Resolution is the largest lever found: one full-resolution run scored
+  `ap_iou25` 0.779 against 0.213 at the shared input size.
+- Data: the public [WiSARD dataset](https://sites.google.com/uw.edu/wisard/),
+  14,834 paired RGB and thermal frames from 17 verified clips, split into four
+  folds that each leave one site-day out. Milestone 1,
+  [Trusted ground](docs/milestones/trusted-ground.md), made that split and
+  the scoring trustworthy.
 
 Progress is tracked as
 [epics and issues](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues?q=is%3Aissue+label%3Aepic).
