@@ -6,6 +6,25 @@ each links to the issue or pull request that holds the detail.
 
 ## Epic: Off-the-shelf bar (in progress)
 
+### 2026-10-04
+
+**Result**
+- At the same input resolution, an ordinary COCO-pretrained detector
+  (Faster R-CNN, MobileNetV3) fine-tuned on the same frames beats the head
+  on frozen SigLIP 2 features wherever labels are scarce: mean `ap_iou25` at
+  10% is 0.163 against 0.113 (RGB) and 0.256 against 0.129 (thermal), and it
+  is ahead in all six camera and fraction cells from 1% to 10%. At 100% the
+  two are level, and the detector's boxes are tighter throughout. The
+  fine-tuned detector, not the frozen head, is now the bar.
+  ([results](docs/supervised-baseline-results.md),
+  [#67](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/67))
+
+**Found**
+- Resolution dominates: the same detector at full 4K resolution scores
+  `ap_iou25` 0.779 on the RGB MtErie fold at 100%, against 0.213 at the
+  cache's input size. One run.
+  ([#67](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/67))
+
 ### 2026-10-03
 
 **Result**
