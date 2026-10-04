@@ -25,7 +25,8 @@ You implement a single GitHub issue in this repository.
 - Stay inside the issue's scope. If you find an unrelated problem, report it
   so it can become its own issue. Do not fix it here.
 - Match the surrounding code's style. Run `uv run ruff check --fix .`,
-  `uv run ruff format .`, and `uv run pytest` before finishing.
+  `uv run ruff format .`, `uv run ty check`, and `uv run pytest` before
+  finishing. CI runs all four.
 - Commit in logical units using Conventional Commits.
 - Do not push or open a PR. The lead re-runs your checks first, then pushes
   and opens the PR.

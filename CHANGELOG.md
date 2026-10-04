@@ -47,6 +47,12 @@ each links to the issue or pull request that holds the detail.
   first bar may stop small-label runs too early.
   ([#68](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/68))
 
+**Changed**
+- The owner waived the check of the 21 unsure label-completeness frames: the
+  WiSARD boxes are used as given and the missing-label estimate stays a
+  range, so measured precision is a floor.
+  ([#37](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/37))
+
 **New**
 - The thermal input ablation can be run: `cache-features --thermal-input
   equalise` builds a separate equalised thermal cache, `train-head
