@@ -100,3 +100,24 @@ people of that size:
   gives smaller cells and may help small people.
 - **Not a comparison between cameras.** RGB and thermal test sets differ in
   frames, people and sizes.
+
+## Step selection check (#91)
+
+At 1% to 10% of labels most of the runs above pick step 250, the first
+evaluation, and validation falls from there. So the heads peak early and
+then overfit; they are not under-trained. To see whether the coarse
+evaluation grid understated the bar, the 24 runs at 1%, 5% and 10% were
+repeated with 500 steps and an evaluation every 25 steps, from `main` at
+`223dc31` (all `completed`, not scratch, `outputs/head-eval25`).
+
+Most runs now pick a step between 25 and 150. Test scores barely move:
+
+| mean `ap_iou25` / `ap_iou50` | RGB, 2,000 steps, every 250 | RGB, 500 steps, every 25 | thermal, 2,000 steps, every 250 | thermal, 500 steps, every 25 |
+|---|---|---|---|---|
+| 1% | 0.044 / 0.001 | 0.051 / 0.002 | 0.065 / 0.001 | 0.063 / 0.002 |
+| 5% | 0.094 / 0.004 | 0.089 / 0.006 | 0.132 / 0.007 | 0.136 / 0.006 |
+| 10% | 0.113 / 0.006 | 0.112 / 0.006 | 0.129 / 0.007 | 0.139 / 0.010 |
+
+Every change is within the spread over folds. The bar stands. The rise from
+0.129 to 0.162 that the matched control showed in #68 (a restarted schedule,
+best of two noisy evaluations) does not come from catching an earlier peak.

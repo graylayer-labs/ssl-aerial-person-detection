@@ -20,6 +20,11 @@ each links to the issue or pull request that holds the detail.
   [#67](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/67))
 
 **Found**
+- The frozen-feature head peaks within 25 to 150 steps at 1% to 10% of labels
+  and then overfits, but selecting the step every 25 steps instead of every
+  250 moves mean `ap_iou25` by at most 0.01, within the spread. The first bar
+  stands.
+  ([#91](https://github.com/graylayer-labs/ssl-aerial-person-detection/issues/91))
 - Resolution dominates: the same detector at full 4K resolution scores
   `ap_iou25` 0.779 on the RGB MtErie fold at 100%, against 0.213 at the
   cache's input size. One run.
